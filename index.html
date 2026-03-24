@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
+  <title>DataDrag</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="palette">
+    <h2>Blocks</h2>
+  </div>
+  <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#555"/>
+      </marker>
+    </defs>
+  </svg>
+  <div id="ctx-menu" class="hidden"></div>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

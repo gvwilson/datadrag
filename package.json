@@ -1,0 +1,15 @@
+{
+  "name": "datadrag",
+  "version": "0.1.0",
+  "description": "drag-and-drop data analysis",
+  "license": "MIT",
+  "author": "Greg Wilson",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "serve": "^14.0.0"
+  }
+}

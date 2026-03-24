@@ -1,0 +1,92 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  display: flex;
+  height: 100vh;
+  font-family: sans-serif;
+  overflow: hidden;
+}
+
+#palette {
+  width: 160px;
+  background: #f0f0f0;
+  border-right: 1px solid #ccc;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+#palette h2 {
+  font-size: 14px;
+  color: #555;
+  margin-bottom: 4px;
+}
+
+.palette-item {
+  border: 1px solid #2980b9;
+  border-radius: 4px;
+  cursor: grab;
+  user-select: none;
+  overflow: hidden;
+}
+
+.palette-item:hover { opacity: 0.85; }
+
+.palette-shape {
+  display: block;
+  width: 100%;
+  height: 36px;
+}
+
+.palette-label {
+  font-size: 12px;
+  text-align: center;
+  color: #333;
+  padding: 2px 0 4px;
+  background: white;
+  border-top: 1px solid #d0e0ed;
+}
+
+#canvas {
+  flex: 1;
+  background: #fafafa;
+  cursor: default;
+}
+
+#ctx-menu {
+  position: fixed;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 2px 2px 8px rgba(0,0,0,0.15);
+  z-index: 100;
+  min-width: 130px;
+}
+
+#ctx-menu.hidden { display: none; }
+
+.menu-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.menu-item:hover { background: #f0f0f0; }
+
+.menu-item.label {
+  color: #888;
+  cursor: default;
+  font-weight: bold;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.menu-item.label:hover { background: white; }
+
+.menu-separator {
+  border-top: 1px solid #eee;
+  margin: 2px 0;
+}
