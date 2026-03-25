@@ -60,6 +60,22 @@ function svgEl(tag, attrs = {}) {
   return el;
 }
 
+// Render a knob as a triangle (indent or outdent) or circle.
+function knobEl(knob) {
+  const style = { fill: '#2980b9', stroke: 'white', 'stroke-width': 1.5 };
+  if (knob.shape === 'indent') {
+    // Triangle pointing down into the block; base on top edge (y=0), tip at (x, KNOB_R).
+    return svgEl('polygon', { ...style,
+      points: `${knob.x - KNOB_R},0 ${knob.x + KNOB_R},0 ${knob.x},${knob.y}` });
+  }
+  if (knob.shape === 'outdent') {
+    // Triangle pointing right out of the block; base on right edge (x=W), tip at (W+KNOB_R, y).
+    return svgEl('polygon', { ...style,
+      points: `${W},${knob.y - KNOB_R} ${W},${knob.y + KNOB_R} ${knob.x},${knob.y}` });
+  }
+  return svgEl('circle', { ...style, cx: knob.x, cy: knob.y, r: KNOB_R });
+}
+
 // --- Render ---
 function render() {
   [...svg.children].forEach(c => { if (c.tagName !== 'defs') c.remove(); });
@@ -112,10 +128,7 @@ function render() {
     text.textContent = BLOCK_TYPES[block.type].label;
     g.appendChild(text);
     for (const knob of knobPositions(block.type)) {
-      g.appendChild(svgEl('circle', {
-        cx: knob.x, cy: knob.y, r: KNOB_R,
-        fill: '#2980b9', stroke: 'white', 'stroke-width': 1.5,
-      }));
+      g.appendChild(knobEl(knob));
     }
     svg.appendChild(g);
   }
@@ -254,10 +267,7 @@ for (const [type, def] of Object.entries(BLOCK_TYPES)) {
     d: blockPath(type), fill: '#e8f4fd', stroke: '#2980b9', 'stroke-width': 1.5,
   }));
   for (const knob of knobPositions(type)) {
-    preview.appendChild(svgEl('circle', {
-      cx: knob.x, cy: knob.y, r: KNOB_R,
-      fill: '#2980b9', stroke: 'white', 'stroke-width': 1.5,
-    }));
+    preview.appendChild(knobEl(knob));
   }
   div.appendChild(preview);
 

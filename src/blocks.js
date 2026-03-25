@@ -28,15 +28,15 @@ export function blockPath(type) {
 }
 
 // Knob positions relative to block origin (0,0).
-// Fan-in: two input knobs on the left side.
-// Fan-out: one output knob on the right side.
+// Fan-in: two input knobs on the top edge (triangular indents, tip at y=KNOB_R).
+// Fan-out: one output knob on the right edge (triangular outdent, tip at x=W+KNOB_R).
 export function knobPositions(type) {
   const { knobs } = BLOCK_TYPES[type];
   return knobs.map((id, i) => {
     if (id.startsWith('in')) {
-      return { id, x: 0, y: Math.round(H * (i + 1) / (knobs.length + 1)) };
+      return { id, x: Math.round(W * (i + 1) / (knobs.length + 1)), y: KNOB_R, shape: 'indent' };
     } else {
-      return { id, x: W, y: H / 2 };
+      return { id, x: W + KNOB_R, y: H / 2, shape: 'outdent' };
     }
   });
 }
