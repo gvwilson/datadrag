@@ -1,8 +1,10 @@
 import {
   W, H, BUMP, KNOB_R,
+  W_WIDE, H_WIDE, blockW, blockH,
   BLOCK_TYPES, blockPath, knobPositions,
   canInitiateConnect, canReceiveConnect,
 } from './blocks.js';
+import * as aq from './aq-browser.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const SNAP_DIST = 60; // large affordance makes stacking easy
@@ -10,10 +12,15 @@ const SNAP_DIST = 60; // large affordance makes stacking easy
 const palette = document.getElementById('palette');
 const svg = document.getElementById('canvas');
 const ctxMenu = document.getElementById('ctx-menu');
+const showModal = document.getElementById('show-modal');
 
 // --- Application state ---
 let state = { blocks: [], arrows: [], nextId: 1 };
 let history = [];
+
+// Arquero tables loaded from CSV files; keyed by block id.
+// Lives outside state so it isn't serialised into history JSON.
+const csvTables = new Map();
 
 // --- Interaction state ---
 let drag = null;         // { ids: number[], pivotId, offsetX, offsetY }
@@ -76,6 +83,74 @@ function knobEl(knob) {
   return svgEl('circle', { ...style, cx: knob.x, cy: knob.y, r: KNOB_R });
 }
 
+// Build a foreignObject containing HTML controls for a wide block.
+function buildBlockControls(block) {
+  const bw = blockW(block.type), bh = blockH(block.type);
+  const fo = svgEl('foreignObject', { x: 4, y: 22, width: bw - 8, height: bh - 26 });
+  const div = document.createElement('div');
+  div.className = 'block-controls';
+
+  if (block.type === 'csv') {
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = '.csv';
+    fileInput.className = 'block-file-input';
+    fileInput.addEventListener('mousedown', e => e.stopPropagation());
+    fileInput.addEventListener('change', async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      block.csvName = file.name;
+      const text = await file.text();
+      csvTables.set(block.id, aq.fromCSV(text));
+      // Update the filename label without a full re-render
+      const lbl = fo.querySelector('.csv-filename');
+      if (lbl) lbl.textContent = file.name;
+    });
+
+    const fileRow = document.createElement('div');
+    fileRow.className = 'block-row';
+    fileRow.appendChild(fileInput);
+    div.appendChild(fileRow);
+
+    const bottomRow = document.createElement('div');
+    bottomRow.className = 'block-row';
+    const filenameSpan = document.createElement('span');
+    filenameSpan.className = 'csv-filename';
+    filenameSpan.textContent = block.csvName || 'No file selected';
+    const runBtn = document.createElement('button');
+    runBtn.textContent = 'Run';
+    runBtn.className = 'block-run-btn';
+    runBtn.addEventListener('mousedown', e => e.stopPropagation());
+    runBtn.addEventListener('click', e => { e.stopPropagation(); runStack(block.id); });
+    bottomRow.appendChild(filenameSpan);
+    bottomRow.appendChild(runBtn);
+    div.appendChild(bottomRow);
+
+  } else if (block.type === 'filter') {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'block-expr-input';
+    input.placeholder = "e.g. age > 65 and color == 'blue'";
+    input.value = block.expr || '';
+    input.addEventListener('mousedown', e => e.stopPropagation());
+    input.addEventListener('input', e => { block.expr = e.target.value; });
+    div.appendChild(input);
+
+  } else if (block.type === 'show') {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'block-expr-input';
+    input.placeholder = 'Display name';
+    input.value = block.showName || '';
+    input.addEventListener('mousedown', e => e.stopPropagation());
+    input.addEventListener('input', e => { block.showName = e.target.value; });
+    div.appendChild(input);
+  }
+
+  fo.appendChild(div);
+  return fo;
+}
+
 // --- Render ---
 function render() {
   [...svg.children].forEach(c => { if (c.tagName !== 'defs') c.remove(); });
@@ -113,6 +188,7 @@ function render() {
 
   // Blocks (rendered on top of arrows)
   for (const block of state.blocks) {
+    const bw = blockW(block.type), bh = blockH(block.type);
     const g = svgEl('g', {
       transform: `translate(${block.x},${block.y})`,
       'data-block-id': block.id,
@@ -121,15 +197,30 @@ function render() {
     g.appendChild(svgEl('path', {
       d: blockPath(block.type), fill: '#e8f4fd', stroke: '#2980b9', 'stroke-width': 1.5,
     }));
-    const text = svgEl('text', {
-      x: W / 2, y: H / 2 + 5,
-      'text-anchor': 'middle', 'font-size': 12, fill: '#333', 'pointer-events': 'none',
-    });
-    text.textContent = BLOCK_TYPES[block.type].label;
-    g.appendChild(text);
-    for (const knob of knobPositions(block.type)) {
-      g.appendChild(knobEl(knob));
+
+    if (BLOCK_TYPES[block.type].wide) {
+      // Wide blocks: small type label at top-left, HTML controls below
+      const label = svgEl('text', {
+        x: 8, y: 15,
+        'font-size': 10, fill: '#888', 'font-weight': 'bold',
+        'text-transform': 'uppercase', 'pointer-events': 'none',
+      });
+      label.textContent = BLOCK_TYPES[block.type].label.toUpperCase();
+      g.appendChild(label);
+      g.appendChild(buildBlockControls(block));
+    } else {
+      // Standard blocks: centred label
+      const text = svgEl('text', {
+        x: bw / 2, y: bh / 2 + 5,
+        'text-anchor': 'middle', 'font-size': 12, fill: '#333', 'pointer-events': 'none',
+      });
+      text.textContent = BLOCK_TYPES[block.type].label;
+      g.appendChild(text);
+      for (const knob of knobPositions(block.type)) {
+        g.appendChild(knobEl(knob));
+      }
     }
+
     svg.appendChild(g);
   }
 }
@@ -226,15 +317,17 @@ function trySnap() {
   const ids = drag.ids;
   const bottom = blockById(ids[ids.length - 1]);
   if (BLOCK_TYPES[bottom.type].bottom !== 'concave') return;
+  const bw = blockW(bottom.type), bh = blockH(bottom.type);
   for (const cand of state.blocks) {
     if (ids.includes(cand.id)) continue;
     if (BLOCK_TYPES[cand.type].top !== 'convex') continue;
     if (blockAbove(cand.id)) continue;
-    const dx = (bottom.x + W / 2) - (cand.x + W / 2);
-    const dy = (bottom.y + H) - cand.y;
+    const cw = blockW(cand.type);
+    const dx = (bottom.x + bw / 2) - (cand.x + cw / 2);
+    const dy = (bottom.y + bh) - cand.y;
     if (Math.abs(dx) < SNAP_DIST && Math.abs(dy) < SNAP_DIST) {
       const shiftX = cand.x - bottom.x;
-      const shiftY = (cand.y - H) - bottom.y;
+      const shiftY = (cand.y - bh) - bottom.y;
       for (const id of ids) { const b = blockById(id); b.x += shiftX; b.y += shiftY; }
       bottom.stackBelow = cand.id;
       return;
@@ -250,7 +343,7 @@ function moveStack(mx, my) {
 }
 
 // --- Palette (SVG shape previews) ---
-// ViewBox covers full block geometry including knobs and convex-top bump
+// ViewBox always uses standard W/H so all palette icons are the same size.
 const PALETTE_VIEWBOX = `${-KNOB_R - 2} ${-BUMP - 2} ${W + (KNOB_R + 2) * 2} ${H + BUMP + KNOB_R + 4}`;
 
 for (const [type, def] of Object.entries(BLOCK_TYPES)) {
@@ -263,8 +356,9 @@ for (const [type, def] of Object.entries(BLOCK_TYPES)) {
   preview.setAttribute('class', 'palette-shape');
   preview.style.pointerEvents = 'none'; // drag events handled by the parent div
 
+  // Always render the palette thumbnail at standard W×H dimensions.
   preview.appendChild(svgEl('path', {
-    d: blockPath(type), fill: '#e8f4fd', stroke: '#2980b9', 'stroke-width': 1.5,
+    d: blockPath(type, W, H), fill: '#e8f4fd', stroke: '#2980b9', 'stroke-width': 1.5,
   }));
   for (const knob of knobPositions(type)) {
     preview.appendChild(knobEl(knob));
@@ -286,15 +380,16 @@ palette.addEventListener('mousedown', e => {
   hideMenu();
   const type = item.dataset.type;
   const rect = svg.getBoundingClientRect();
+  const bw = blockW(type), bh = blockH(type);
   saveHistory();
   const block = {
     id: state.nextId++, type,
-    x: e.clientX - rect.left - W / 2,
-    y: e.clientY - rect.top - H / 2,
+    x: e.clientX - rect.left - bw / 2,
+    y: e.clientY - rect.top - bh / 2,
     stackBelow: null,
   };
   state.blocks.push(block);
-  drag = { ids: [block.id], pivotId: block.id, offsetX: W / 2, offsetY: H / 2 };
+  drag = { ids: [block.id], pivotId: block.id, offsetX: bw / 2, offsetY: bh / 2 };
   lastDown = { blockId: block.id, arrowId: null };
   moved = true;       // treat palette drag as already in motion
   historySaved = true;
@@ -304,6 +399,8 @@ palette.addEventListener('mousedown', e => {
 // --- SVG events ---
 svg.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
+  // Let HTML controls inside foreignObject handle their own events.
+  if (e.target.closest('foreignObject')) return;
   e.preventDefault();
   hideMenu();
   const rect = svg.getBoundingClientRect();
@@ -390,5 +487,83 @@ document.addEventListener('click', e => {
 });
 
 svg.addEventListener('contextmenu', e => e.preventDefault());
+
+// --- Execution engine ---
+
+// Transform a user-friendly filter expression into a JS predicate function.
+// Handles: `and`→&&, `or`→||, `not`→!, bare `=`→===,
+// and wraps bare identifiers as d['name'] so column names work without prefix.
+function buildFilterFn(expr) {
+  const KEYWORDS = new Set(['true', 'false', 'null', 'undefined', 'NaN', 'Infinity']);
+  const js = expr
+    .replace(/\band\b/gi, '&&')
+    .replace(/\bor\b/gi, '||')
+    .replace(/\bnot\b/gi, '!')
+    .replace(/(?<![<>!=])=(?!=)/g, '===');
+  // Wrap bare identifiers that aren't JS keywords with d['...'] so column
+  // names are resolved against the row object without any `with` statement.
+  const wrapped = js.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (m, name) =>
+    KEYWORDS.has(name) ? name : `d['${name}']`
+  );
+  return new Function('d', `return (${wrapped})`); // eslint-disable-line no-new-func
+}
+
+// Walk the stack starting at csvBlockId, threading the arquero table through
+// each block. `show` blocks open a popup but do not terminate the walk.
+async function runStack(csvBlockId) {
+  let table = csvTables.get(csvBlockId);
+  if (!table) {
+    alert('No CSV file loaded — please select a file first.');
+    return;
+  }
+
+  let cur = blockById(csvBlockId);
+  while (cur) {
+    if (cur.type === 'filter' && cur.expr) {
+      try {
+        const pred = buildFilterFn(cur.expr);
+        table = table.filter(aq.escape(pred));
+      } catch (err) {
+        alert(`Filter error: ${err.message}`);
+        return;
+      }
+    } else if (cur.type === 'show') {
+      showDataframe(cur.showName || 'Result', table);
+    }
+    cur = cur.stackBelow ? blockById(cur.stackBelow) : null;
+  }
+}
+
+// Display an arquero table in the show modal.
+function showDataframe(title, table) {
+  document.getElementById('show-title').textContent = title;
+  const cols = table.columnNames();
+  const rows = table.objects({ limit: 200 }); // cap at 200 rows for display
+
+  let html = '<table class="df-table"><thead><tr>';
+  for (const col of cols) html += `<th>${col}</th>`;
+  html += '</tr></thead><tbody>';
+  for (const row of rows) {
+    html += '<tr>';
+    for (const col of cols) {
+      const v = row[col];
+      html += `<td>${v === null || v === undefined ? '' : v}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  if (table.numRows() > 200) {
+    html += `<p class="df-truncated">Showing 200 of ${table.numRows()} rows</p>`;
+  }
+  document.getElementById('show-body').innerHTML = html;
+  showModal.classList.remove('hidden');
+}
+
+document.getElementById('show-close').addEventListener('click', () => {
+  showModal.classList.add('hidden');
+});
+document.getElementById('show-overlay').addEventListener('click', () => {
+  showModal.classList.add('hidden');
+});
 
 render();

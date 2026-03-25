@@ -18,6 +18,33 @@
     </defs>
   </svg>
   <div id="ctx-menu" class="hidden"></div>
+
+  <!-- Show-block popup modal -->
+  <div id="show-modal" class="hidden">
+    <div id="show-overlay"></div>
+    <div id="show-content">
+      <div id="show-header">
+        <h3 id="show-title"></h3>
+        <button id="show-close" aria-label="Close">✕</button>
+      </div>
+      <div id="show-body"></div>
+    </div>
+  </div>
+
+  <!-- Import map: resolves bare specifiers used by arquero's ESM source. -->
+  <!-- node: stubs are placeholders; arquero's file-loading code paths   -->
+  <!-- are never reached because we feed CSV text directly from the       -->
+  <!-- browser File API.                                                  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "acorn":             "/node_modules/acorn/dist/acorn.mjs",
+      "@uwdata/flechette": "/node_modules/@uwdata/flechette/dist/flechette.mjs",
+      "node:fs/promises":  "/src/stubs/node-fs-stub.js",
+      "node:stream":       "/src/stubs/node-stream-stub.js"
+    }
+  }
+  </script>
   <script type="module" src="src/app.js"></script>
 </body>
 </html>

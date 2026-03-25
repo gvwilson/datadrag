@@ -328,6 +328,139 @@ test('undo after moving a block restores its position', async ({ page }) => {
   expect(restored.y).toBeCloseTo(original.y, 0);
 });
 
+// --- Plan-05 block type tests ---
+
+test('palette contains csv, filter, and show blocks', async ({ page }) => {
+  await page.goto('/');
+  for (const label of ['CSV', 'Filter', 'Show']) {
+    await expect(page.locator('.palette-item', { hasText: label })).toBeVisible();
+  }
+});
+
+test('csv block renders a file input and Run button', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'CSV', canvas.x + 300, canvas.y + 200);
+  const block = page.locator('[data-block-id="1"]');
+  await expect(block.locator('input[type="file"]')).toHaveCount(1);
+  await expect(block.locator('button')).toHaveText('Run');
+});
+
+test('filter block renders a text input', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'Filter', canvas.x + 300, canvas.y + 200);
+  await expect(page.locator('[data-block-id="1"] input[type="text"]')).toHaveCount(1);
+});
+
+test('show block renders a text input', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'Show', canvas.x + 300, canvas.y + 200);
+  await expect(page.locator('[data-block-id="1"] input[type="text"]')).toHaveCount(1);
+});
+
+test('csv block is wider than a standard block on canvas', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'CSV',   canvas.x + 300, canvas.y + 150);
+  await dragFromPalette(page, 'Input', canvas.x + 300, canvas.y + 350);
+  // CSV uses W_WIDE=240; Input uses W=120. Check the SVG path d attribute.
+  const csvPath   = await page.locator('[data-block-id="1"] path').getAttribute('d');
+  const inputPath = await page.locator('[data-block-id="2"] path').getAttribute('d');
+  expect(csvPath).toContain('240');
+  expect(inputPath).not.toContain('240');
+});
+
+test('run without a file loaded shows an alert', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'CSV', canvas.x + 300, canvas.y + 200);
+  // Start click without awaiting — alert() blocks the browser, so we must
+  // accept the dialog before the click action can complete.
+  const dialogPromise = page.waitForEvent('dialog');
+  const clickPromise  = page.locator('[data-block-id="1"] button').click();
+  const dialog = await dialogPromise;
+  expect(dialog.message()).toContain('No CSV file');
+  await dialog.accept();
+  await clickPromise;
+});
+
+// Helper: load a CSV file into a csv block and wait for the async read to finish.
+async function loadCSV(page, blockId, filePath) {
+  await page.locator(`[data-block-id="${blockId}"] input[type="file"]`).setInputFiles(filePath);
+  // The change handler sets the .csv-filename label after file.text() resolves.
+  const filename = filePath.split('/').pop();
+  await expect(page.locator(`[data-block-id="${blockId}"] .csv-filename`))
+    .toHaveText(filename, { timeout: 3000 });
+}
+
+test('csv and show stack executes and displays modal with data', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  // Drop Show first (id=1) then CSV above it (id=2); CSV's concave bottom snaps onto Show's convex top.
+  // Show SVG y=260, CSV SVG y=160: dy = (160+80)-260 = -20, within SNAP_DIST=60.
+  await dragFromPalette(page, 'Show', canvas.x + 300, canvas.y + 300);
+  await dragFromPalette(page, 'CSV',  canvas.x + 300, canvas.y + 200);
+
+  await page.locator('[data-block-id="1"] input[type="text"]').fill('My Results');
+  await loadCSV(page, 2, 'tests/test-data.csv');
+
+  await page.locator('[data-block-id="2"] button').click();
+
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#show-title')).toHaveText('My Results');
+  await expect(page.locator('#show-body .df-table')).toBeVisible();
+  await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(4);
+});
+
+test('filter expression reduces rows shown in modal', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  // Stack (bottom→top): Show(1), Filter(2), CSV(3).
+  // Each block snaps onto the one below it.
+  await dragFromPalette(page, 'Show',   canvas.x + 300, canvas.y + 450);
+  await dragFromPalette(page, 'Filter', canvas.x + 300, canvas.y + 340);
+  await dragFromPalette(page, 'CSV',    canvas.x + 300, canvas.y + 270);
+
+  // age > 25 matches Bob(30) and Diana(35) → 2 rows.
+  await page.locator('[data-block-id="2"] input[type="text"]').fill('age > 25');
+  await loadCSV(page, 3, 'tests/test-data.csv');
+
+  await page.locator('[data-block-id="3"] button').click();
+
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(2);
+});
+
+test('show modal closes when the close button is clicked', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'Show', canvas.x + 300, canvas.y + 300);
+  await dragFromPalette(page, 'CSV',  canvas.x + 300, canvas.y + 200);
+  await loadCSV(page, 2, 'tests/test-data.csv');
+  await page.locator('[data-block-id="2"] button').click();
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+
+  await page.locator('#show-close').click();
+  await expect(page.locator('#show-modal')).toHaveClass(/hidden/);
+});
+
+test('show modal closes when the overlay is clicked', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'Show', canvas.x + 300, canvas.y + 300);
+  await dragFromPalette(page, 'CSV',  canvas.x + 300, canvas.y + 200);
+  await loadCSV(page, 2, 'tests/test-data.csv');
+  await page.locator('[data-block-id="2"] button').click();
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+
+  // Click via evaluate so the overlay element receives the event directly —
+  // clicking by coordinates would hit #show-content which sits on top.
+  await page.evaluate(() => document.getElementById('show-overlay').click());
+  await expect(page.locator('#show-modal')).toHaveClass(/hidden/);
+});
+
 // --- Menu behaviour ---
 
 test('context menu closes when clicking outside it', async ({ page }) => {
