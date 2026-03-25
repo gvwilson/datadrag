@@ -8,14 +8,17 @@ export const KNOB_R = 6;    // radius of connection knobs
 
 // Block type definitions
 export const BLOCK_TYPES = {
-  input:    { label: 'Input',    top: 'flat',   bottom: 'concave', knobs: [],           wide: false },
-  output:   { label: 'Output',   top: 'convex', bottom: 'flat',    knobs: [],           wide: false },
-  pipeline: { label: 'Pipeline', top: 'convex', bottom: 'concave', knobs: [],           wide: false },
-  'fan-in': { label: 'Fan-in',   top: 'flat',   bottom: 'concave', knobs: ['in0','in1'], wide: false },
-  'fan-out':{ label: 'Fan-out',  top: 'convex', bottom: 'concave', knobs: ['out0'],      wide: false },
-  csv:      { label: 'CSV',      top: 'flat',   bottom: 'concave', knobs: [],           wide: true  },
-  filter:   { label: 'Filter',   top: 'convex', bottom: 'concave', knobs: [],           wide: true  },
-  show:     { label: 'Show',     top: 'convex', bottom: 'concave', knobs: [],           wide: true  },
+  csv:         { label: 'CSV',         top: 'flat',   bottom: 'concave', knobs: ['out0'],             wide: true },
+  filter:      { label: 'Filter',      top: 'convex', bottom: 'concave', knobs: ['out0'],             wide: true },
+  select:      { label: 'Select',      top: 'convex', bottom: 'concave', knobs: ['out0'],             wide: true },
+  sort:        { label: 'Sort',        top: 'convex', bottom: 'concave', knobs: ['out0'],             wide: true },
+  groupby:     { label: 'Group By',    top: 'convex', bottom: 'concave', knobs: ['out0'],             wide: true },
+  summarize:   { label: 'Summarize',   top: 'convex', bottom: 'concave', knobs: ['out0'],             wide: true },
+  mutate:      { label: 'Mutate',      top: 'convex', bottom: 'concave', knobs: ['out0'],             wide: true },
+  slice:       { label: 'Slice',       top: 'convex', bottom: 'concave', knobs: ['out0'],             wide: true },
+  deduplicate: { label: 'Deduplicate', top: 'convex', bottom: 'concave', knobs: ['out0'],             wide: true },
+  join:        { label: 'Join',        top: 'flat',   bottom: 'concave', knobs: ['in0','in1','out0'], wide: true },
+  show:        { label: 'Show',        top: 'convex', bottom: 'concave', knobs: [],                  wide: true },
 };
 
 // Rendered width/height of a block type on the canvas.
@@ -40,9 +43,8 @@ export function blockPath(type, w = blockW(type), h = blockH(type)) {
 // Knob positions relative to block origin (0,0).
 // Fan-in: two input knobs on the top edge (triangular indents, tip at y=KNOB_R).
 // Fan-out: one output knob on the right edge (triangular outdent, tip at x=W+KNOB_R).
-export function knobPositions(type) {
+export function knobPositions(type, w = blockW(type), h = blockH(type)) {
   const { knobs } = BLOCK_TYPES[type];
-  const w = blockW(type), h = blockH(type);
   return knobs.map((id, i) => {
     if (id.startsWith('in')) {
       return { id, x: Math.round(w * (i + 1) / (knobs.length + 1)), y: KNOB_R, shape: 'indent' };

@@ -13,12 +13,11 @@ async function dragFromPalette(page, label, targetX, targetY) {
 }
 
 // Helper: click a block on canvas to open its context menu (no drag).
+// Clicks near the top of the block, above the foreignObject control area (y >= 22).
 async function clickBlock(page, blockId) {
   const g = page.locator(`[data-block-id="${blockId}"]`);
   const box = await g.boundingBox();
-  const cx = box.x + box.width / 2;
-  const cy = box.y + box.height / 2;
-  await page.mouse.move(cx, cy);
+  await page.mouse.move(box.x + box.width / 2, box.y + 8);
   await page.mouse.down();
   await page.mouse.up();
 }
@@ -27,7 +26,8 @@ test('page loads with palette and canvas', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#palette')).toBeVisible();
   await expect(page.locator('#canvas')).toBeVisible();
-  for (const label of ['Input', 'Output', 'Pipeline', 'Fan-in', 'Fan-out']) {
+  for (const label of ['CSV', 'Filter', 'Select', 'Sort', 'Group By', 'Summarize',
+                        'Mutate', 'Slice', 'Deduplicate', 'Join', 'Show']) {
     await expect(page.locator('.palette-item', { hasText: label })).toBeVisible();
   }
 });
@@ -35,32 +35,36 @@ test('page loads with palette and canvas', async ({ page }) => {
 test('drag block from palette creates it on canvas', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Input', canvas.x + 300, canvas.y + 200);
+  await dragFromPalette(page, 'Filter', canvas.x + 300, canvas.y + 200);
   await expect(page.locator('[data-block-id]')).toHaveCount(1);
 });
 
 test('clicking block shows context menu with type label and delete', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Pipeline', canvas.x + 300, canvas.y + 200);
+  await dragFromPalette(page, 'Filter', canvas.x + 300, canvas.y + 200);
   await clickBlock(page, 1);
   await expect(page.locator('#ctx-menu')).not.toHaveClass(/hidden/);
-  await expect(page.locator('.menu-item.label')).toHaveText('Pipeline');
+  await expect(page.locator('.menu-item.label')).toHaveText('Filter');
   await expect(page.locator('.menu-item', { hasText: 'Delete' })).toBeVisible();
 });
 
-test('fan-out block context menu shows Connect option', async ({ page }) => {
+test('every non-show block context menu shows Connect option', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Fan-out', canvas.x + 300, canvas.y + 200);
-  await clickBlock(page, 1);
-  await expect(page.locator('.menu-item', { hasText: 'Connect' })).toBeVisible();
+  for (const [i, label] of ['CSV', 'Filter', 'Select', 'Sort', 'Group By',
+                              'Summarize', 'Mutate', 'Slice', 'Deduplicate', 'Join'].entries()) {
+    await dragFromPalette(page, label, canvas.x + 150 + i * 10, canvas.y + 150 + i * 10);
+    await clickBlock(page, i + 1);
+    await expect(page.locator('.menu-item', { hasText: 'Connect' })).toBeVisible();
+    await page.locator('#palette h2').click(); // close menu
+  }
 });
 
-test('non-connectable block has no Connect option', async ({ page }) => {
+test('show block has no Connect option', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Input', canvas.x + 300, canvas.y + 200);
+  await dragFromPalette(page, 'Show', canvas.x + 300, canvas.y + 200);
   await clickBlock(page, 1);
   await expect(page.locator('.menu-item', { hasText: 'Connect' })).toHaveCount(0);
 });
@@ -68,7 +72,7 @@ test('non-connectable block has no Connect option', async ({ page }) => {
 test('delete removes block from canvas', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Output', canvas.x + 300, canvas.y + 200);
+  await dragFromPalette(page, 'Filter', canvas.x + 300, canvas.y + 200);
   await expect(page.locator('[data-block-id]')).toHaveCount(1);
   await clickBlock(page, 1);
   await page.locator('.menu-item', { hasText: 'Delete' }).click();
@@ -78,46 +82,35 @@ test('delete removes block from canvas', async ({ page }) => {
 test('undo restores deleted block', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Input', canvas.x + 300, canvas.y + 200);
+  await dragFromPalette(page, 'Filter', canvas.x + 300, canvas.y + 200);
   await clickBlock(page, 1);
   await page.locator('.menu-item', { hasText: 'Delete' }).click();
   await expect(page.locator('[data-block-id]')).toHaveCount(0);
-
-  // Click canvas background to get canvas menu, then undo
   await page.mouse.click(canvas.x + 100, canvas.y + 100);
   await page.locator('.menu-item', { hasText: 'Undo' }).click();
   await expect(page.locator('[data-block-id]')).toHaveCount(1);
 });
 
-test('connect fan-out to fan-in creates an arrow', async ({ page }) => {
+test('connect csv to join creates an arrow', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  // Place fan-out on the left, fan-in on the right
-  await dragFromPalette(page, 'Fan-out', canvas.x + 150, canvas.y + 200);
-  await dragFromPalette(page, 'Fan-in',  canvas.x + 400, canvas.y + 200);
-
-  // Click fan-out to open menu, then click Connect
+  await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 200);
+  await dragFromPalette(page, 'Join', canvas.x + 450, canvas.y + 200);
   await clickBlock(page, 1);
   await page.locator('.menu-item', { hasText: 'Connect' }).click();
-
-  // Click the fan-in block to complete connection
   await clickBlock(page, 2);
-
-  // An arrow group should now exist
   await expect(page.locator('[data-arrow-id]')).toHaveCount(1);
 });
 
 test('click connector shows delete option and removes arrow', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Fan-out', canvas.x + 150, canvas.y + 200);
-  await dragFromPalette(page, 'Fan-in',  canvas.x + 400, canvas.y + 200);
+  await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 200);
+  await dragFromPalette(page, 'Join', canvas.x + 650, canvas.y + 200);
   await clickBlock(page, 1);
   await page.locator('.menu-item', { hasText: 'Connect' }).click();
   await clickBlock(page, 2);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(1);
-
-  // Click the arrow connector
   await page.locator('[data-arrow-id]').click();
   await expect(page.locator('#ctx-menu')).not.toHaveClass(/hidden/);
   await expect(page.locator('.menu-item.label')).toHaveText('Connector');
@@ -125,21 +118,21 @@ test('click connector shows delete option and removes arrow', async ({ page }) =
   await expect(page.locator('[data-arrow-id]')).toHaveCount(0);
 });
 
-// --- Knob shape tests (plan-04) ---
+// --- Knob shape tests ---
 
-test('fan-in knobs are rendered as polygons, not circles', async ({ page }) => {
+test('join block knobs are rendered as polygons (in0, in1, out0)', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Fan-in', canvas.x + 300, canvas.y + 200);
+  await dragFromPalette(page, 'Join', canvas.x + 300, canvas.y + 200);
   const block = page.locator('[data-block-id="1"]');
-  await expect(block.locator('polygon')).toHaveCount(2);
+  await expect(block.locator('polygon')).toHaveCount(3);
   await expect(block.locator('circle')).toHaveCount(0);
 });
 
-test('fan-out knob is rendered as a polygon, not a circle', async ({ page }) => {
+test('csv block out0 knob is rendered as a polygon', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Fan-out', canvas.x + 300, canvas.y + 200);
+  await dragFromPalette(page, 'CSV', canvas.x + 300, canvas.y + 200);
   const block = page.locator('[data-block-id="1"]');
   await expect(block.locator('polygon')).toHaveCount(1);
   await expect(block.locator('circle')).toHaveCount(0);
@@ -147,52 +140,47 @@ test('fan-out knob is rendered as a polygon, not a circle', async ({ page }) => 
 
 // --- Connection rule tests ---
 
-test('fan-in accepts a second connection on its second knob', async ({ page }) => {
+test('join block accepts connections on both input knobs', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Fan-out', canvas.x + 150, canvas.y + 150);
-  await dragFromPalette(page, 'Fan-out', canvas.x + 150, canvas.y + 300);
-  await dragFromPalette(page, 'Fan-in',  canvas.x + 400, canvas.y + 200);
-
+  await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 150);
+  await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 300);
+  await dragFromPalette(page, 'Join', canvas.x + 450, canvas.y + 200);
   await clickBlock(page, 1);
   await page.locator('.menu-item', { hasText: 'Connect' }).click();
   await clickBlock(page, 3);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(1);
-
   await clickBlock(page, 2);
   await page.locator('.menu-item', { hasText: 'Connect' }).click();
   await clickBlock(page, 3);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(2);
 });
 
-test('fan-in rejects a third connection when both knobs are occupied', async ({ page }) => {
+test('join block rejects a third connection when both knobs are occupied', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Fan-out', canvas.x + 150, canvas.y + 100);
-  await dragFromPalette(page, 'Fan-out', canvas.x + 150, canvas.y + 250);
-  await dragFromPalette(page, 'Fan-out', canvas.x + 150, canvas.y + 400);
-  await dragFromPalette(page, 'Fan-in',  canvas.x + 400, canvas.y + 200);
-
+  await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 100);
+  await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 250);
+  await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 400);
+  await dragFromPalette(page, 'Join', canvas.x + 450, canvas.y + 200);
   for (const id of [1, 2]) {
     await clickBlock(page, id);
     await page.locator('.menu-item', { hasText: 'Connect' }).click();
     await clickBlock(page, 4);
   }
   await expect(page.locator('[data-arrow-id]')).toHaveCount(2);
-
-  // Third attempt should be silently rejected
+  // Third attempt silently rejected
   await clickBlock(page, 3);
   await page.locator('.menu-item', { hasText: 'Connect' }).click();
   await clickBlock(page, 4);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(2);
 });
 
-test('connecting fan-out to a non-fan-in block does nothing', async ({ page }) => {
+test('connecting to a block with no input knobs does nothing', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Fan-out', canvas.x + 150, canvas.y + 200);
-  await dragFromPalette(page, 'Pipeline', canvas.x + 400, canvas.y + 200);
-
+  await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 200);
+  await dragFromPalette(page, 'Show', canvas.x + 450, canvas.y + 200);
   await clickBlock(page, 1);
   await page.locator('.menu-item', { hasText: 'Connect' }).click();
   await clickBlock(page, 2);
@@ -202,11 +190,10 @@ test('connecting fan-out to a non-fan-in block does nothing', async ({ page }) =
 test('self-connection attempt is rejected', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Fan-out', canvas.x + 300, canvas.y + 200);
-
+  await dragFromPalette(page, 'CSV', canvas.x + 300, canvas.y + 200);
   await clickBlock(page, 1);
   await page.locator('.menu-item', { hasText: 'Connect' }).click();
-  await clickBlock(page, 1); // click the same block
+  await clickBlock(page, 1);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(0);
 });
 
@@ -215,13 +202,12 @@ test('self-connection attempt is rejected', async ({ page }) => {
 test('deleting a block removes its connected arrows', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Fan-out', canvas.x + 150, canvas.y + 200);
-  await dragFromPalette(page, 'Fan-in',  canvas.x + 400, canvas.y + 200);
+  await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 200);
+  await dragFromPalette(page, 'Join', canvas.x + 450, canvas.y + 200);
   await clickBlock(page, 1);
   await page.locator('.menu-item', { hasText: 'Connect' }).click();
   await clickBlock(page, 2);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(1);
-
   await clickBlock(page, 1);
   await page.locator('.menu-item', { hasText: 'Delete' }).click();
   await expect(page.locator('[data-arrow-id]')).toHaveCount(0);
@@ -238,16 +224,14 @@ function parseTranslate(t) {
 test('block already on canvas can be dragged to a new position', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Input', canvas.x + 300, canvas.y + 200);
+  await dragFromPalette(page, 'Filter', canvas.x + 300, canvas.y + 200);
   const block = page.locator('[data-block-id="1"]');
   const before = parseTranslate(await block.getAttribute('transform'));
-
   const box = await block.boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.move(box.x + box.width / 2, box.y + 8);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2 + 120, box.y + box.height / 2 + 80);
+  await page.mouse.move(box.x + box.width / 2 + 120, box.y + 80);
   await page.mouse.up();
-
   const after = parseTranslate(await block.getAttribute('transform'));
   expect(after.x).not.toBeCloseTo(before.x, 0);
   expect(after.y).not.toBeCloseTo(before.y, 0);
@@ -255,39 +239,36 @@ test('block already on canvas can be dragged to a new position', async ({ page }
 
 // --- Stack / snap ---
 
-test('fan-in snaps onto fan-out when dropped nearby', async ({ page }) => {
+test('csv block snaps above filter when dropped nearby', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  // Fan-out (id=1) at SVG (240, 220): convex top is the snap target.
-  await dragFromPalette(page, 'Fan-out', canvas.x + 300, canvas.y + 250);
-  // Fan-in (id=2) at SVG (240, 170): bottom (170+60=230) is within SNAP_DIST=60 of fan-out top (220).
-  await dragFromPalette(page, 'Fan-in',  canvas.x + 300, canvas.y + 200);
-
-  const fanoutPos = parseTranslate(await page.locator('[data-block-id="1"]').getAttribute('transform'));
-  const faninPos  = parseTranslate(await page.locator('[data-block-id="2"]').getAttribute('transform'));
-  // After snap: fan-in.y + H (60) should equal fan-out.y
-  expect(faninPos.y + 60).toBeCloseTo(fanoutPos.y, 0);
+  // Filter (id=1) placed first; CSV (id=2) dropped close above it and snaps.
+  await dragFromPalette(page, 'Filter', canvas.x + 300, canvas.y + 300);
+  await dragFromPalette(page, 'CSV',    canvas.x + 300, canvas.y + 200);
+  const filterPos = parseTranslate(await page.locator('[data-block-id="1"]').getAttribute('transform'));
+  const csvPos    = parseTranslate(await page.locator('[data-block-id="2"]').getAttribute('transform'));
+  // After snap: csv.y + H_WIDE (80) should equal filter.y.
+  expect(csvPos.y + 80).toBeCloseTo(filterPos.y, 0);
 });
 
 test('dragging the top block in a stack moves the whole chain', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Fan-out', canvas.x + 300, canvas.y + 250);
-  await dragFromPalette(page, 'Fan-in',  canvas.x + 300, canvas.y + 200);
-
-  const fanoutBefore = parseTranslate(await page.locator('[data-block-id="1"]').getAttribute('transform'));
-
-  // Drag fan-in (top of stack)
-  const faninBlock = page.locator('[data-block-id="2"]');
-  const box = await faninBlock.boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  // Build stack (bottom→top): Show(1) ← Filter(2) ← CSV(3).
+  await dragFromPalette(page, 'Show',   canvas.x + 300, canvas.y + 450);
+  await dragFromPalette(page, 'Filter', canvas.x + 300, canvas.y + 340);
+  await dragFromPalette(page, 'CSV',    canvas.x + 300, canvas.y + 270);
+  const showBefore = parseTranslate(await page.locator('[data-block-id="1"]').getAttribute('transform'));
+  // Drag CSV (top of stack).
+  const csvBlock = page.locator('[data-block-id="3"]');
+  const box = await csvBlock.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + 8);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2 - 100, box.y + box.height / 2 - 80);
+  await page.mouse.move(box.x + box.width / 2 - 100, box.y - 80);
   await page.mouse.up();
-
-  const fanoutAfter = parseTranslate(await page.locator('[data-block-id="1"]').getAttribute('transform'));
-  expect(fanoutAfter.x).not.toBeCloseTo(fanoutBefore.x, 0);
-  expect(fanoutAfter.y).not.toBeCloseTo(fanoutBefore.y, 0);
+  const showAfter = parseTranslate(await page.locator('[data-block-id="1"]').getAttribute('transform'));
+  expect(showAfter.x).not.toBeCloseTo(showBefore.x, 0);
+  expect(showAfter.y).not.toBeCloseTo(showBefore.y, 0);
 });
 
 // --- Undo coverage ---
@@ -295,13 +276,12 @@ test('dragging the top block in a stack moves the whole chain', async ({ page })
 test('undo after creating an arrow removes it', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Fan-out', canvas.x + 150, canvas.y + 200);
-  await dragFromPalette(page, 'Fan-in',  canvas.x + 400, canvas.y + 200);
+  await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 200);
+  await dragFromPalette(page, 'Join', canvas.x + 450, canvas.y + 200);
   await clickBlock(page, 1);
   await page.locator('.menu-item', { hasText: 'Connect' }).click();
   await clickBlock(page, 2);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(1);
-
   await page.mouse.click(canvas.x + 600, canvas.y + 400);
   await page.locator('.menu-item', { hasText: 'Undo' }).click();
   await expect(page.locator('[data-arrow-id]')).toHaveCount(0);
@@ -310,17 +290,14 @@ test('undo after creating an arrow removes it', async ({ page }) => {
 test('undo after moving a block restores its position', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Input', canvas.x + 300, canvas.y + 200);
+  await dragFromPalette(page, 'Filter', canvas.x + 300, canvas.y + 200);
   const block = page.locator('[data-block-id="1"]');
   const original = parseTranslate(await block.getAttribute('transform'));
-
-  // Drag to a new position
   const box = await block.boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.move(box.x + box.width / 2, box.y + 8);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2 + 120, box.y + box.height / 2 + 80);
+  await page.mouse.move(box.x + box.width / 2 + 120, box.y + 80);
   await page.mouse.up();
-
   await page.mouse.click(canvas.x + 600, canvas.y + 400);
   await page.locator('.menu-item', { hasText: 'Undo' }).click();
   const restored = parseTranslate(await block.getAttribute('transform'));
@@ -328,14 +305,7 @@ test('undo after moving a block restores its position', async ({ page }) => {
   expect(restored.y).toBeCloseTo(original.y, 0);
 });
 
-// --- Plan-05 block type tests ---
-
-test('palette contains csv, filter, and show blocks', async ({ page }) => {
-  await page.goto('/');
-  for (const label of ['CSV', 'Filter', 'Show']) {
-    await expect(page.locator('.palette-item', { hasText: label })).toBeVisible();
-  }
-});
+// --- Block control rendering tests ---
 
 test('csv block renders a file input and Run button', async ({ page }) => {
   await page.goto('/');
@@ -358,18 +328,6 @@ test('show block renders a text input', async ({ page }) => {
   const canvas = await page.locator('#canvas').boundingBox();
   await dragFromPalette(page, 'Show', canvas.x + 300, canvas.y + 200);
   await expect(page.locator('[data-block-id="1"] input[type="text"]')).toHaveCount(1);
-});
-
-test('csv block is wider than a standard block on canvas', async ({ page }) => {
-  await page.goto('/');
-  const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'CSV',   canvas.x + 300, canvas.y + 150);
-  await dragFromPalette(page, 'Input', canvas.x + 300, canvas.y + 350);
-  // CSV uses W_WIDE=240; Input uses W=120. Check the SVG path d attribute.
-  const csvPath   = await page.locator('[data-block-id="1"] path').getAttribute('d');
-  const inputPath = await page.locator('[data-block-id="2"] path').getAttribute('d');
-  expect(csvPath).toContain('240');
-  expect(inputPath).not.toContain('240');
 });
 
 test('run without a file loaded shows an alert', async ({ page }) => {
@@ -404,7 +362,7 @@ test('csv and show stack executes and displays modal with data', async ({ page }
   await dragFromPalette(page, 'CSV',  canvas.x + 300, canvas.y + 200);
 
   await page.locator('[data-block-id="1"] input[type="text"]').fill('My Results');
-  await loadCSV(page, 2, 'tests/test-data.csv');
+  await loadCSV(page, 2, 'tests/test-data-1.csv');
 
   await page.locator('[data-block-id="2"] button').click();
 
@@ -425,7 +383,7 @@ test('filter expression reduces rows shown in modal', async ({ page }) => {
 
   // age > 25 matches Bob(30) and Diana(35) → 2 rows.
   await page.locator('[data-block-id="2"] input[type="text"]').fill('age > 25');
-  await loadCSV(page, 3, 'tests/test-data.csv');
+  await loadCSV(page, 3, 'tests/test-data-1.csv');
 
   await page.locator('[data-block-id="3"] button').click();
 
@@ -438,7 +396,7 @@ test('show modal closes when the close button is clicked', async ({ page }) => {
   const canvas = await page.locator('#canvas').boundingBox();
   await dragFromPalette(page, 'Show', canvas.x + 300, canvas.y + 300);
   await dragFromPalette(page, 'CSV',  canvas.x + 300, canvas.y + 200);
-  await loadCSV(page, 2, 'tests/test-data.csv');
+  await loadCSV(page, 2, 'tests/test-data-1.csv');
   await page.locator('[data-block-id="2"] button').click();
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
 
@@ -451,7 +409,7 @@ test('show modal closes when the overlay is clicked', async ({ page }) => {
   const canvas = await page.locator('#canvas').boundingBox();
   await dragFromPalette(page, 'Show', canvas.x + 300, canvas.y + 300);
   await dragFromPalette(page, 'CSV',  canvas.x + 300, canvas.y + 200);
-  await loadCSV(page, 2, 'tests/test-data.csv');
+  await loadCSV(page, 2, 'tests/test-data-1.csv');
   await page.locator('[data-block-id="2"] button').click();
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
 
@@ -461,12 +419,212 @@ test('show modal closes when the overlay is clicked', async ({ page }) => {
   await expect(page.locator('#show-modal')).toHaveClass(/hidden/);
 });
 
+// --- Data science block controls ---
+
+test('select block renders a text input', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'Select', canvas.x + 300, canvas.y + 200);
+  await expect(page.locator('[data-block-id="1"] input[type="text"]')).toHaveCount(1);
+});
+
+test('sort block renders a text input', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'Sort', canvas.x + 300, canvas.y + 200);
+  await expect(page.locator('[data-block-id="1"] input[type="text"]')).toHaveCount(1);
+});
+
+test('slice block renders a number input', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'Slice', canvas.x + 300, canvas.y + 200);
+  await expect(page.locator('[data-block-id="1"] input[type="number"]')).toHaveCount(1);
+});
+
+// Stack helper for 3-block tests: Show(1) → Middle(2) → CSV(3), returns CSV block id.
+async function threeBlockStack(page, canvas, middleLabel) {
+  await dragFromPalette(page, 'Show',       canvas.x + 300, canvas.y + 450);
+  await dragFromPalette(page, middleLabel,  canvas.x + 300, canvas.y + 340);
+  await dragFromPalette(page, 'CSV',        canvas.x + 300, canvas.y + 270);
+}
+
+test('select reduces columns shown in modal', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await threeBlockStack(page, canvas, 'Select');
+  // Select only name and color (drop age column) — 2 of 3 columns.
+  await page.locator('[data-block-id="2"] input[type="text"]').fill('name, color');
+  await loadCSV(page, 3, 'tests/test-data-1.csv');
+  await page.locator('[data-block-id="3"] button').click();
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#show-body .df-table th')).toHaveCount(2);
+  await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(4);
+});
+
+test('sort orders rows by column value', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await threeBlockStack(page, canvas, 'Sort');
+  // Sort by age ascending; Charlie(20) should be first.
+  await page.locator('[data-block-id="2"] input[type="text"]').fill('age');
+  await loadCSV(page, 3, 'tests/test-data-1.csv');
+  await page.locator('[data-block-id="3"] button').click();
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  // First column (name) of first row should be Charlie.
+  await expect(page.locator('#show-body .df-table tbody tr:first-child td').first()).toHaveText('Charlie');
+});
+
+test('sort descending puts largest value first', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await threeBlockStack(page, canvas, 'Sort');
+  // Sort by age desc; Diana(35) should be first.
+  await page.locator('[data-block-id="2"] input[type="text"]').fill('age desc');
+  await loadCSV(page, 3, 'tests/test-data-1.csv');
+  await page.locator('[data-block-id="3"] button').click();
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#show-body .df-table tbody tr:first-child td').first()).toHaveText('Diana');
+});
+
+test('groupby and summarize produce one row per group', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  // Stack (bottom→top): Show(1), Summarize(2), GroupBy(3), CSV(4).
+  await dragFromPalette(page, 'Show',      canvas.x + 300, canvas.y + 580);
+  await dragFromPalette(page, 'Summarize', canvas.x + 300, canvas.y + 470);
+  await dragFromPalette(page, 'Group By',  canvas.x + 300, canvas.y + 370);
+  await dragFromPalette(page, 'CSV',       canvas.x + 300, canvas.y + 290);
+  // Group by color: blue(2), red(1), green(1) → 3 groups.
+  await page.locator('[data-block-id="3"] input[type="text"]').fill('color');
+  await page.locator('[data-block-id="2"] input[type="text"]').fill('n = count()');
+  await loadCSV(page, 4, 'tests/test-data-1.csv');
+  await page.locator('[data-block-id="4"] button').click();
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(3);
+});
+
+test('mutate adds a new column', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await threeBlockStack(page, canvas, 'Mutate');
+  // Add a boolean column: senior = age > 29.
+  await page.locator('[data-block-id="2"] input[type="text"]').fill('senior = age > 29');
+  await loadCSV(page, 3, 'tests/test-data-1.csv');
+  await page.locator('[data-block-id="3"] button').click();
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  // Original 3 columns + senior = 4 columns, all 4 rows preserved.
+  await expect(page.locator('#show-body .df-table th')).toHaveCount(4);
+  await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(4);
+});
+
+test('slice keeps only the first N rows', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await threeBlockStack(page, canvas, 'Slice');
+  await page.locator('[data-block-id="2"] input[type="number"]').fill('2');
+  await loadCSV(page, 3, 'tests/test-data-1.csv');
+  await page.locator('[data-block-id="3"] button').click();
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(2);
+});
+
+test('deduplicate passes through already-unique rows unchanged', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await threeBlockStack(page, canvas, 'Deduplicate');
+  await loadCSV(page, 3, 'tests/test-data-1.csv');
+  await page.locator('[data-block-id="3"] button').click();
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(4);
+});
+
+// --- Join block ---
+
+test('join block renders a text input for the condition', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'Join', canvas.x + 300, canvas.y + 200);
+  await expect(page.locator('[data-block-id="1"] input[type="text"]')).toHaveCount(1);
+});
+
+test('join block inner-joins two CSV sources and runs when second input arrives', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+
+  // Stack: Show(1) at bottom, Join(2) snapped above it.
+  await dragFromPalette(page, 'Show', canvas.x + 400, canvas.y + 430);
+  await dragFromPalette(page, 'Join', canvas.x + 400, canvas.y + 310);
+
+  // Two CSV blocks placed freely (will not snap to join because join.top = 'flat').
+  await dragFromPalette(page, 'CSV', canvas.x + 170, canvas.y + 140); // id=3
+  await dragFromPalette(page, 'CSV', canvas.x + 630, canvas.y + 140); // id=4
+
+  // Fill the join condition.
+  await page.locator('[data-block-id="2"] input[type="text"]').fill('left.name = right.name');
+
+  // Connect CSV1(3).out0 → Join(2).in0
+  await clickBlock(page, 3);
+  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await clickBlock(page, 2); // completes connection to in0
+
+  // Connect CSV2(4).out0 → Join(2).in1
+  await clickBlock(page, 4);
+  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await clickBlock(page, 2); // completes connection to in1
+
+  await expect(page.locator('[data-arrow-id]')).toHaveCount(2);
+
+  // Load test-data-1.csv (name,age,color – 4 rows) into CSV1.
+  // Load test-data-2.csv (name,score – 3 rows: Alice/Bob/Diana) into CSV2.
+  await loadCSV(page, 3, 'tests/test-data-1.csv');
+  await loadCSV(page, 4, 'tests/test-data-2.csv');
+
+  // Running CSV1 alone: join has only one input — modal must stay hidden.
+  await page.locator('[data-block-id="3"] button').click();
+  await expect(page.locator('#show-modal')).toHaveClass(/hidden/);
+
+  // Running CSV2 supplies the second input — join fires automatically.
+  await page.locator('[data-block-id="4"] button').click();
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+
+  // Inner join: Charlie has no match in test-data-2.csv → 3 rows.
+  await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(3);
+
+  // 'score' column comes from the right table.
+  await expect(page.locator('#show-body .df-table th', { hasText: 'score' })).toBeVisible();
+});
+
+test('re-running CSV1 after both inputs loaded re-executes join', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'Show', canvas.x + 400, canvas.y + 430);
+  await dragFromPalette(page, 'Join', canvas.x + 400, canvas.y + 310);
+  await dragFromPalette(page, 'CSV', canvas.x + 170, canvas.y + 140); // id=3
+  await dragFromPalette(page, 'CSV', canvas.x + 630, canvas.y + 140); // id=4
+  await page.locator('[data-block-id="2"] input[type="text"]').fill('left.name = right.name');
+  await clickBlock(page, 3);
+  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await clickBlock(page, 2);
+  await clickBlock(page, 4);
+  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await clickBlock(page, 2);
+  await loadCSV(page, 3, 'tests/test-data-1.csv');
+  await loadCSV(page, 4, 'tests/test-data-2.csv');
+  // Run both to seed join.
+  await page.locator('[data-block-id="4"] button').click();
+  await page.locator('[data-block-id="3"] button').click();
+  // Modal should be visible after second run (join re-executed).
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(3);
+});
+
 // --- Menu behaviour ---
 
 test('context menu closes when clicking outside it', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'Input', canvas.x + 300, canvas.y + 200);
+  await dragFromPalette(page, 'Filter', canvas.x + 300, canvas.y + 200);
   await clickBlock(page, 1);
   await expect(page.locator('#ctx-menu')).not.toHaveClass(/hidden/);
 
