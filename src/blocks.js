@@ -9,17 +9,18 @@ export const KNOB_R = 12;   // radius of connection knobs
 
 // Block type definitions
 export const BLOCK_TYPES = {
-  csv:         { label: 'CSV',         top: 'flat',   bottom: 'concave', knobs: ['out0', 'out1'],          wide: true },
-  filter:      { label: 'Filter',      top: 'convex', bottom: 'concave', knobs: ['out0', 'out1'],          wide: true },
-  select:      { label: 'Select',      top: 'convex', bottom: 'concave', knobs: ['out0', 'out1'],          wide: true },
-  sort:        { label: 'Sort',        top: 'convex', bottom: 'concave', knobs: ['out0', 'out1'],          wide: true },
-  groupby:     { label: 'Group By',    top: 'convex', bottom: 'concave', knobs: ['out0', 'out1'],          wide: true },
-  summarize:   { label: 'Summarize',   top: 'convex', bottom: 'concave', knobs: ['out0', 'out1'],          wide: true },
-  mutate:      { label: 'Mutate',      top: 'convex', bottom: 'concave', knobs: ['out0', 'out1'],          wide: true },
-  slice:       { label: 'Slice',       top: 'convex', bottom: 'concave', knobs: ['out0', 'out1'],          wide: true },
-  deduplicate: { label: 'Unique',      top: 'convex', bottom: 'concave', knobs: ['out0', 'out1'],          wide: true },
-  join:        { label: 'Join',        top: 'flat',   bottom: 'concave', knobs: ['in0','in1','out0','out1'], wide: true },
-  show:        { label: 'Show',        top: 'convex', bottom: 'concave', knobs: [],                        wide: true },
+  csvupload:   { label: 'CSV Upload', top: 'flat',        bottom: 'outputtable', knobs: ['out0', 'out1'],          wide: true },
+  dataset:     { label: 'Data Set',   top: 'flat',        bottom: 'outputtable', knobs: ['out0', 'out1'],          wide: true },
+  filter:      { label: 'Filter',     top: 'inputtable',  bottom: 'outputtable', knobs: ['out0', 'out1'],          wide: true },
+  select:      { label: 'Select',     top: 'inputtable',  bottom: 'outputtable', knobs: ['out0', 'out1'],          wide: true },
+  sort:        { label: 'Sort',       top: 'inputtable',  bottom: 'outputtable', knobs: ['out0', 'out1'],          wide: true },
+  groupby:     { label: 'Group By',   top: 'inputtable',  bottom: 'outputtable', knobs: ['out0', 'out1'],          wide: true },
+  summarize:   { label: 'Summarize',  top: 'inputtable',  bottom: 'outputtable', knobs: ['out0', 'out1'],          wide: true },
+  mutate:      { label: 'Mutate',     top: 'inputtable',  bottom: 'outputtable', knobs: ['out0', 'out1'],          wide: true },
+  slice:       { label: 'Slice',      top: 'inputtable',  bottom: 'outputtable', knobs: ['out0', 'out1'],          wide: true },
+  deduplicate: { label: 'Unique',     top: 'inputtable',  bottom: 'outputtable', knobs: ['out0', 'out1'],          wide: true },
+  join:        { label: 'Join',       top: 'flat',        bottom: 'outputtable', knobs: ['in0','in1','out0','out1'], wide: true },
+  show:        { label: 'Show',       top: 'inputtable',  bottom: 'outputtable', knobs: [],                        wide: true },
 };
 
 // Rendered width/height of a block type on the canvas.
@@ -28,8 +29,8 @@ export function blockH(type) { return BLOCK_TYPES[type]?.wide ? H_WIDE : H; }
 
 // SVG path for a block drawn at origin (0,0); use a <g transform="translate(x,y)"> to position it.
 //
-// Convex top: a shallow rectangular tab protrudes TAB_H px above y=0, centred on the block width.
-// Concave bottom: a matching rectangular notch is cut TAB_H px up from y=h, centred on the block width.
+// Inputtable top: a shallow rectangular tab protrudes TAB_H px above y=0, centred on the block width.
+// Outputtable bottom: a matching rectangular notch is cut TAB_H px up from y=h, centred on the block width.
 // When stacked, the tab of the lower block fits exactly into the notch of the upper block.
 //
 // Optional w/h override lets callers render at a different size (kept for future use).
@@ -38,11 +39,11 @@ export function blockPath(type, w = blockW(type), h = blockH(type)) {
   const tl = (w - TAB_W) / 2;  // tab left x
   const tr = (w + TAB_W) / 2;  // tab right x
 
-  const topEdge = top === 'convex'
+  const topEdge = top === 'inputtable'
     ? `M 0,0 L ${tl},0 L ${tl},${-TAB_H} L ${tr},${-TAB_H} L ${tr},0 L ${w},0`
     : `M 0,0 L ${w},0`;
 
-  const bottomEdge = bottom === 'concave'
+  const bottomEdge = bottom === 'outputtable'
     ? `L ${w},${h} L ${tr},${h} L ${tr},${h - TAB_H} L ${tl},${h - TAB_H} L ${tl},${h} L 0,${h}`
     : `L ${w},${h} L 0,${h}`;
 

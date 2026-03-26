@@ -112,34 +112,7 @@ function buildBlockControls(block) {
   const div = document.createElement('div');
   div.className = 'block-controls';
 
-  if (block.type === 'csv') {
-    // Built-in dataset selector
-    const select = document.createElement('select');
-    select.className = 'block-builtin-select';
-    const defaultOpt = document.createElement('option');
-    defaultOpt.value = '';
-    defaultOpt.textContent = '— built-in data —';
-    defaultOpt.disabled = true;
-    defaultOpt.selected = true;
-    select.appendChild(defaultOpt);
-    for (const ds of BUILTIN_DATASETS) {
-      const opt = document.createElement('option');
-      opt.value = ds.value;
-      opt.textContent = ds.label;
-      select.appendChild(opt);
-    }
-    select.addEventListener('mousedown', e => { e.stopPropagation(); lastDown = null; });
-    select.addEventListener('change', async e => {
-      const ds = BUILTIN_DATASETS.find(d => d.value === e.target.value);
-      if (!ds) return;
-      block.csvName = ds.value;
-      const text = ds.csv;
-      csvTables.set(block.id, aq.fromCSV(text));
-      fileInput.dataset.loaded = ds.value; // signals tests that async load is complete
-    });
-    div.appendChild(select);
-
-    // File upload (for custom CSV files)
+  if (block.type === 'csvupload') {
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = '.csv';
@@ -152,13 +125,36 @@ function buildBlockControls(block) {
       const text = await file.text();
       csvTables.set(block.id, aq.fromCSV(text));
       fileInput.dataset.loaded = file.name; // signals tests that async load is complete
-      select.selectedIndex = 0; // reset built-in selector
     });
-
     const fileRow = document.createElement('div');
     fileRow.className = 'block-row';
     fileRow.appendChild(fileInput);
     div.appendChild(fileRow);
+
+  } else if (block.type === 'dataset') {
+    const select = document.createElement('select');
+    select.className = 'block-builtin-select';
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = '— choose dataset —';
+    defaultOpt.disabled = true;
+    defaultOpt.selected = true;
+    select.appendChild(defaultOpt);
+    for (const ds of BUILTIN_DATASETS) {
+      const opt = document.createElement('option');
+      opt.value = ds.value;
+      opt.textContent = ds.label;
+      select.appendChild(opt);
+    }
+    select.addEventListener('mousedown', e => { e.stopPropagation(); lastDown = null; });
+    select.addEventListener('change', e => {
+      const ds = BUILTIN_DATASETS.find(d => d.value === e.target.value);
+      if (!ds) return;
+      block.csvName = ds.value;
+      csvTables.set(block.id, aq.fromCSV(ds.csv));
+      select.dataset.loaded = ds.value; // signals tests that async load is complete
+    });
+    div.appendChild(select);
 
   } else if (block.type === 'filter') {
     const input = document.createElement('input');
@@ -174,8 +170,7 @@ function buildBlockControls(block) {
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'block-expr-input';
-    input.placeholder = 'Display name';
-    input.value = block.showName || '';
+    input.value = block.showName ?? '';
     input.addEventListener('mousedown', e => { e.stopPropagation(); lastDown = null; });
     input.addEventListener('input', e => { block.showName = e.target.value; });
     div.appendChild(input);
@@ -213,19 +208,19 @@ function buildBlockControls(block) {
 }
 
 // Returns the { bottomId, targetId } pair that would snap if the drag ended now, or null.
-// bottomId = the block whose concave bottom receives the connection.
-// targetId = the block whose convex top fits into that concave bottom.
+// bottomId = the block whose outputtable bottom receives the connection.
+// targetId = the block whose inputtable top fits into that outputtable bottom.
 function findSnapCandidate() {
   if (!drag || !moved) return null;
   const ids = drag.ids;
 
   // Case 1: bottom of dragged chain snaps above a stationary block.
   const bottom = blockById(ids[ids.length - 1]);
-  if (BLOCK_TYPES[bottom.type].bottom === 'concave') {
+  if (BLOCK_TYPES[bottom.type].bottom === 'outputtable') {
     const bw = blockW(bottom.type), bh = blockH(bottom.type);
     for (const cand of state.blocks) {
       if (ids.includes(cand.id)) continue;
-      if (BLOCK_TYPES[cand.type].top !== 'convex') continue;
+      if (BLOCK_TYPES[cand.type].top !== 'inputtable') continue;
       if (blockAbove(cand.id)) continue;
       const cw = blockW(cand.type);
       const dx = (bottom.x + bw / 2) - (cand.x + cw / 2);
@@ -238,11 +233,11 @@ function findSnapCandidate() {
 
   // Case 2: top of dragged chain snaps below a stationary block.
   const top = blockById(ids[0]);
-  if (BLOCK_TYPES[top.type].top === 'convex') {
+  if (BLOCK_TYPES[top.type].top === 'inputtable') {
     const tw = blockW(top.type);
     for (const cand of state.blocks) {
       if (ids.includes(cand.id)) continue;
-      if (BLOCK_TYPES[cand.type].bottom !== 'concave') continue;
+      if (BLOCK_TYPES[cand.type].bottom !== 'outputtable') continue;
       if (cand.stackBelow) continue;
       const cw = blockW(cand.type), ch = blockH(cand.type);
       const dx = (top.x + tw / 2) - (cand.x + cw / 2);
@@ -448,11 +443,11 @@ function trySnap() {
 
   // Case 1: bottom of dragged chain snaps above a stationary block.
   const bottom = blockById(ids[ids.length - 1]);
-  if (BLOCK_TYPES[bottom.type].bottom === 'concave') {
+  if (BLOCK_TYPES[bottom.type].bottom === 'outputtable') {
     const bw = blockW(bottom.type), bh = blockH(bottom.type);
     for (const cand of state.blocks) {
       if (ids.includes(cand.id)) continue;
-      if (BLOCK_TYPES[cand.type].top !== 'convex') continue;
+      if (BLOCK_TYPES[cand.type].top !== 'inputtable') continue;
       if (blockAbove(cand.id)) continue;
       const cw = blockW(cand.type);
       const dx = (bottom.x + bw / 2) - (cand.x + cw / 2);
@@ -469,11 +464,11 @@ function trySnap() {
 
   // Case 2: top of dragged chain snaps below a stationary block.
   const top = blockById(ids[0]);
-  if (BLOCK_TYPES[top.type].top === 'convex') {
+  if (BLOCK_TYPES[top.type].top === 'inputtable') {
     const tw = blockW(top.type);
     for (const cand of state.blocks) {
       if (ids.includes(cand.id)) continue;
-      if (BLOCK_TYPES[cand.type].bottom !== 'concave') continue;
+      if (BLOCK_TYPES[cand.type].bottom !== 'outputtable') continue;
       if (cand.stackBelow) continue;
       const cw = blockW(cand.type), ch = blockH(cand.type);
       const dx = (top.x + tw / 2) - (cand.x + cw / 2);
@@ -557,8 +552,10 @@ function buildFilterFn(expr) {
     .replace(/(?<![<>!=])=(?!=)/g, '===');
   // Wrap bare identifiers that aren't JS keywords with d['...'] so column
   // names are resolved against the row object without any `with` statement.
-  const wrapped = js.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (m, name) =>
-    KEYWORDS.has(name) ? name : `d['${name}']`
+  // String literals (single or double quoted) are matched first and preserved
+  // unchanged so that values like 'Chinstrap' are not incorrectly wrapped.
+  const wrapped = js.replace(/('[^']*'|"[^"]*")|(\b([a-zA-Z_][a-zA-Z0-9_]*)\b)/g,
+    (m, str, _ident, name) => str ?? (KEYWORDS.has(name) ? name : `d['${name}']`)
   );
   return new Function('d', `return (${wrapped})`); // eslint-disable-line no-new-func
 }
@@ -604,7 +601,7 @@ async function processChain(startBlock, initialTable) {
         table = table.dedupe();
         grouped = null;
       } else if (cur.type === 'show') {
-        showDataframe(cur.showName || 'Result', table);
+        showDataframe(cur.showName, table);
       }
     } catch (err) {
       alert(`Error in ${BLOCK_TYPES[cur.type].label} block: ${err.message}`);
@@ -744,6 +741,10 @@ function init(container) {
       y: e.clientY - rect.top - bh / 2,
       stackBelow: null,
     };
+    if (type === 'show') {
+      const n = state.blocks.filter(b => b.type === 'show').length + 1;
+      block.showName = `Table ${n}`;
+    }
     state.blocks.push(block);
     drag = { ids: [block.id], pivotId: block.id, offsetX: bw / 2, offsetY: bh / 2 };
     lastDown = { blockId: block.id, arrowId: null };
@@ -885,7 +886,7 @@ function init(container) {
   });
   container.querySelector('#run-all-btn').addEventListener('click', () => {
     for (const block of state.blocks) {
-      if (block.type === 'csv') runStack(block.id);
+      if (block.type === 'csvupload' || block.type === 'dataset') runStack(block.id);
     }
   });
 
