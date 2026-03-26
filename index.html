@@ -6,33 +6,7 @@
   <title>DataDrag</title>
 </head>
 <body>
-  <div id="palette">
-    <h2>Blocks</h2>
-  </div>
-  <div id="canvas-area">
-    <button id="run-all-btn">Run</button>
-    <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-          <polygon points="0 0, 8 3, 0 6" fill="#555"/>
-        </marker>
-      </defs>
-    </svg>
-  </div>
-  <div id="ctx-menu" class="hidden"></div>
-
-  <!-- Show-block popup modal -->
-  <div id="show-modal" class="hidden">
-    <div id="show-overlay"></div>
-    <div id="show-content">
-      <div id="show-header">
-        <h3 id="show-title"></h3>
-        <button id="show-close" aria-label="Close">✕</button>
-      </div>
-      <div id="show-body"></div>
-    </div>
-  </div>
-
+  <div id="datadrag"></div>
   <script src="dist/datadrag.js"></script>
 </body>
 </html>

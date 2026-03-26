@@ -1,6 +1,6 @@
 import {
-  W, H, BUMP, KNOB_R,
-  W_WIDE, H_WIDE, blockW, blockH,
+  KNOB_R,
+  blockW, blockH,
   BLOCK_TYPES, blockPath, knobPositions,
   canInitiateConnect, canReceiveConnect,
 } from './blocks.js';
@@ -9,12 +9,10 @@ import { BUILTIN_DATASETS } from './data.js';
 import './styles.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const SNAP_DIST = 60; // large affordance makes stacking easy
+const SNAP_DIST = 80; // large affordance makes stacking easy
 
-const palette = document.getElementById('palette');
-const svg = document.getElementById('canvas');
-const ctxMenu = document.getElementById('ctx-menu');
-const showModal = document.getElementById('show-modal');
+// Assigned by init()
+let palette, svg, ctxMenu, showModal, showTitle, showBody;
 
 // --- Application state ---
 let state = { blocks: [], arrows: [], nextId: 1 };
@@ -74,15 +72,23 @@ function svgEl(tag, attrs = {}) {
 
 // Render a knob as a triangle (indent or outdent) or circle.
 function knobEl(knob) {
-  const style = { fill: '#2980b9' };
+  const isOut = knob.id.startsWith('out');
+  const style = { fill: '#2980b9', 'data-knob-id': knob.id };
+  if (isOut) style.cursor = 'crosshair';
   if (knob.shape === 'indent') {
     // Triangle pointing down into the block; base on top edge (y=0), tip at (x, KNOB_R).
     return svgEl('polygon', { ...style,
       points: `${knob.x - KNOB_R},0 ${knob.x + KNOB_R},0 ${knob.x},${knob.y}` });
   }
   if (knob.shape === 'outdent') {
-    // Triangle pointing right out of the block; base on right edge (x=knob.x-KNOB_R), tip at (knob.x, y).
+    // Triangle pointing right; base on right edge (x=knob.x-KNOB_R), tip at (knob.x, y).
     const bx = knob.x - KNOB_R;
+    return svgEl('polygon', { ...style,
+      points: `${bx},${knob.y - KNOB_R} ${bx},${knob.y + KNOB_R} ${knob.x},${knob.y}` });
+  }
+  if (knob.shape === 'outdent-left') {
+    // Triangle pointing left; base on left edge (x=knob.x+KNOB_R), tip at (knob.x, y).
+    const bx = knob.x + KNOB_R;
     return svgEl('polygon', { ...style,
       points: `${bx},${knob.y - KNOB_R} ${bx},${knob.y + KNOB_R} ${knob.x},${knob.y}` });
   }
@@ -206,6 +212,50 @@ function buildBlockControls(block) {
   return fo;
 }
 
+// Returns the { bottomId, targetId } pair that would snap if the drag ended now, or null.
+// bottomId = the block whose concave bottom receives the connection.
+// targetId = the block whose convex top fits into that concave bottom.
+function findSnapCandidate() {
+  if (!drag || !moved) return null;
+  const ids = drag.ids;
+
+  // Case 1: bottom of dragged chain snaps above a stationary block.
+  const bottom = blockById(ids[ids.length - 1]);
+  if (BLOCK_TYPES[bottom.type].bottom === 'concave') {
+    const bw = blockW(bottom.type), bh = blockH(bottom.type);
+    for (const cand of state.blocks) {
+      if (ids.includes(cand.id)) continue;
+      if (BLOCK_TYPES[cand.type].top !== 'convex') continue;
+      if (blockAbove(cand.id)) continue;
+      const cw = blockW(cand.type);
+      const dx = (bottom.x + bw / 2) - (cand.x + cw / 2);
+      const dy = (bottom.y + bh) - cand.y;
+      if (Math.abs(dx) < SNAP_DIST && Math.abs(dy) < SNAP_DIST) {
+        return { bottomId: bottom.id, targetId: cand.id };
+      }
+    }
+  }
+
+  // Case 2: top of dragged chain snaps below a stationary block.
+  const top = blockById(ids[0]);
+  if (BLOCK_TYPES[top.type].top === 'convex') {
+    const tw = blockW(top.type);
+    for (const cand of state.blocks) {
+      if (ids.includes(cand.id)) continue;
+      if (BLOCK_TYPES[cand.type].bottom !== 'concave') continue;
+      if (cand.stackBelow) continue;
+      const cw = blockW(cand.type), ch = blockH(cand.type);
+      const dx = (top.x + tw / 2) - (cand.x + cw / 2);
+      const dy = top.y - (cand.y + ch);
+      if (Math.abs(dx) < SNAP_DIST && Math.abs(dy) < SNAP_DIST) {
+        return { bottomId: cand.id, targetId: top.id };
+      }
+    }
+  }
+
+  return null;
+}
+
 // --- Render ---
 function render() {
   [...svg.children].forEach(c => { if (c.tagName !== 'defs') c.remove(); });
@@ -242,6 +292,8 @@ function render() {
   }
 
   // Blocks (rendered on top of arrows)
+  const snapCand = findSnapCandidate();
+  const snapIds = snapCand ? new Set([snapCand.bottomId, snapCand.targetId]) : new Set();
   for (const block of state.blocks) {
     const bw = blockW(block.type), bh = blockH(block.type);
     const g = svgEl('g', {
@@ -249,8 +301,12 @@ function render() {
       'data-block-id': block.id,
       cursor: 'pointer',
     });
+    const hl = snapIds.has(block.id);
     g.appendChild(svgEl('path', {
-      d: blockPath(block.type), fill: '#e8f4fd', stroke: '#2980b9', 'stroke-width': 1.5,
+      d: blockPath(block.type),
+      fill: hl ? '#d5f5e3' : '#e8f4fd',
+      stroke: hl ? '#27ae60' : '#2980b9',
+      'stroke-width': hl ? 2.5 : 1.5,
     }));
 
     if (BLOCK_TYPES[block.type].wide) {
@@ -319,7 +375,13 @@ function showBlockMenu(blockId, clientX, clientY) {
     { sep: true },
     { text: 'Delete', fn: () => deleteBlock(blockId) },
   ];
-  if (canInitiateConnect(block.type)) items.push({ text: 'Connect', fn: () => startConnect(blockId) });
+  const outKnobs = BLOCK_TYPES[block.type].knobs.filter(k => k.startsWith('out'));
+  if (outKnobs.length === 1) {
+    items.push({ text: 'Connect', fn: () => startConnect(blockId, outKnobs[0]) });
+  } else if (outKnobs.length > 1) {
+    items.push({ text: 'Connect →', fn: () => startConnect(blockId, 'out0') });
+    items.push({ text: '← Connect', fn: () => startConnect(blockId, 'out1') });
+  }
   showMenu(items, clientX, clientY);
 }
 
@@ -360,9 +422,9 @@ function deleteArrow(id) {
   render();
 }
 
-function startConnect(blockId) {
+function startConnect(blockId, knobId) {
   const block = blockById(blockId);
-  const knob = knobPositions(block.type).find(k => k.id.startsWith('out'));
+  const knob = knobPositions(block.type).find(k => k.id === knobId);
   if (!knob) return;
   const pos = knobAbsPos(block, knob.id);
   connect = { fromId: blockId, fromKnob: knob.id, mx: pos.x, my: pos.y };
@@ -383,22 +445,46 @@ function completeConnect(toId) {
 
 function trySnap() {
   const ids = drag.ids;
+
+  // Case 1: bottom of dragged chain snaps above a stationary block.
   const bottom = blockById(ids[ids.length - 1]);
-  if (BLOCK_TYPES[bottom.type].bottom !== 'concave') return;
-  const bw = blockW(bottom.type), bh = blockH(bottom.type);
-  for (const cand of state.blocks) {
-    if (ids.includes(cand.id)) continue;
-    if (BLOCK_TYPES[cand.type].top !== 'convex') continue;
-    if (blockAbove(cand.id)) continue;
-    const cw = blockW(cand.type);
-    const dx = (bottom.x + bw / 2) - (cand.x + cw / 2);
-    const dy = (bottom.y + bh) - cand.y;
-    if (Math.abs(dx) < SNAP_DIST && Math.abs(dy) < SNAP_DIST) {
-      const shiftX = cand.x - bottom.x;
-      const shiftY = (cand.y - bh) - bottom.y;
-      for (const id of ids) { const b = blockById(id); b.x += shiftX; b.y += shiftY; }
-      bottom.stackBelow = cand.id;
-      return;
+  if (BLOCK_TYPES[bottom.type].bottom === 'concave') {
+    const bw = blockW(bottom.type), bh = blockH(bottom.type);
+    for (const cand of state.blocks) {
+      if (ids.includes(cand.id)) continue;
+      if (BLOCK_TYPES[cand.type].top !== 'convex') continue;
+      if (blockAbove(cand.id)) continue;
+      const cw = blockW(cand.type);
+      const dx = (bottom.x + bw / 2) - (cand.x + cw / 2);
+      const dy = (bottom.y + bh) - cand.y;
+      if (Math.abs(dx) < SNAP_DIST && Math.abs(dy) < SNAP_DIST) {
+        const shiftX = cand.x - bottom.x;
+        const shiftY = (cand.y - bh) - bottom.y;
+        for (const id of ids) { const b = blockById(id); b.x += shiftX; b.y += shiftY; }
+        bottom.stackBelow = cand.id;
+        return;
+      }
+    }
+  }
+
+  // Case 2: top of dragged chain snaps below a stationary block.
+  const top = blockById(ids[0]);
+  if (BLOCK_TYPES[top.type].top === 'convex') {
+    const tw = blockW(top.type);
+    for (const cand of state.blocks) {
+      if (ids.includes(cand.id)) continue;
+      if (BLOCK_TYPES[cand.type].bottom !== 'concave') continue;
+      if (cand.stackBelow) continue;
+      const cw = blockW(cand.type), ch = blockH(cand.type);
+      const dx = (top.x + tw / 2) - (cand.x + cw / 2);
+      const dy = top.y - (cand.y + ch);
+      if (Math.abs(dx) < SNAP_DIST && Math.abs(dy) < SNAP_DIST) {
+        const shiftX = cand.x - top.x;
+        const shiftY = (cand.y + ch) - top.y;
+        for (const id of ids) { const b = blockById(id); b.x += shiftX; b.y += shiftY; }
+        cand.stackBelow = top.id;
+        return;
+      }
     }
   }
 }
@@ -409,177 +495,6 @@ function moveStack(mx, my) {
   const dy = (my - drag.offsetY) - pivot.y;
   for (const id of drag.ids) { const b = blockById(id); b.x += dx; b.y += dy; }
 }
-
-// --- Palette (SVG shape previews) ---
-// ViewBox always uses standard W/H so all palette icons are the same size.
-const PALETTE_VIEWBOX = `${-KNOB_R - 2} ${-BUMP - 2} ${W + (KNOB_R + 2) * 2} ${H + BUMP + KNOB_R + 4}`;
-
-for (const [type, def] of Object.entries(BLOCK_TYPES)) {
-  const div = document.createElement('div');
-  div.className = 'palette-item';
-  div.dataset.type = type;
-
-  const preview = document.createElementNS(SVG_NS, 'svg');
-  preview.setAttribute('viewBox', PALETTE_VIEWBOX);
-  preview.setAttribute('class', 'palette-shape');
-  preview.style.pointerEvents = 'none'; // drag events handled by the parent div
-
-  // Always render the palette thumbnail at standard W×H dimensions.
-  preview.appendChild(svgEl('path', {
-    d: blockPath(type, W, H), fill: '#e8f4fd', stroke: '#2980b9', 'stroke-width': 1.5,
-  }));
-  for (const knob of knobPositions(type, W, H)) {
-    preview.appendChild(knobEl(knob));
-  }
-  div.appendChild(preview);
-
-  const label = document.createElement('div');
-  label.className = 'palette-label';
-  label.textContent = def.label;
-  div.appendChild(label);
-
-  palette.appendChild(div);
-}
-
-palette.addEventListener('mousedown', e => {
-  const item = e.target.closest('.palette-item');
-  if (!item) return;
-  e.preventDefault();
-  hideMenu();
-  const type = item.dataset.type;
-  const rect = svg.getBoundingClientRect();
-  const bw = blockW(type), bh = blockH(type);
-  saveHistory();
-  const block = {
-    id: state.nextId++, type,
-    x: e.clientX - rect.left - bw / 2,
-    y: e.clientY - rect.top - bh / 2,
-    stackBelow: null,
-  };
-  state.blocks.push(block);
-  drag = { ids: [block.id], pivotId: block.id, offsetX: bw / 2, offsetY: bh / 2 };
-  lastDown = { blockId: block.id, arrowId: null };
-  moved = true;       // treat palette drag as already in motion
-  historySaved = true;
-  render();
-});
-
-// --- SVG events ---
-svg.addEventListener('mousedown', e => {
-  if (e.button !== 0) return;
-  const rect = svg.getBoundingClientRect();
-  const mx = e.clientX - rect.left;
-  const my = e.clientY - rect.top;
-
-  // Clicks inside a foreignObject: inputs handle themselves; background clicks start a drag.
-  if (e.target.closest('foreignObject')) {
-    if (e.target.matches('input, button, select, textarea')) {
-      lastDown = null; // prevent stale state from triggering a menu on release
-    } else {
-      const blockEl = e.target.closest('[data-block-id]');
-      if (blockEl && !connect) {
-        e.preventDefault();
-        hideMenu();
-        const blockId = +blockEl.dataset.blockId;
-        const block = blockById(blockId);
-        lastDown = { blockId, arrowId: null };
-        moved = false;
-        historySaved = false;
-        drag = { ids: stackChain(blockId), pivotId: blockId, offsetX: mx - block.x, offsetY: my - block.y };
-      }
-    }
-    return;
-  }
-
-  e.preventDefault();
-  hideMenu();
-  const blockEl = e.target.closest('[data-block-id]');
-  const arrowEl = !blockEl ? e.target.closest('[data-arrow-id]') : null;
-  const blockId = blockEl ? +blockEl.dataset.blockId : null;
-  const arrowId = arrowEl ? +arrowEl.dataset.arrowId : null;
-  lastDown = { blockId, arrowId };
-  moved = false;
-  historySaved = false;
-
-  if (connect) return; // connection clicks handled in mouseup
-
-  if (blockId !== null) {
-    const block = blockById(blockId);
-    drag = {
-      ids: stackChain(blockId),
-      pivotId: blockId,
-      offsetX: mx - block.x,
-      offsetY: my - block.y,
-    };
-  }
-});
-
-document.addEventListener('mousemove', e => {
-  if (!drag && !connect) return;
-  const rect = svg.getBoundingClientRect();
-  const mx = e.clientX - rect.left;
-  const my = e.clientY - rect.top;
-
-  if (drag) {
-    if (!moved) {
-      if (!historySaved) { saveHistory(); historySaved = true; }
-      const above = blockAbove(drag.pivotId);
-      if (above) above.stackBelow = null;
-      moved = true;
-    }
-    moveStack(mx, my);
-    render();
-  }
-
-  if (connect) {
-    connect.mx = mx;
-    connect.my = my;
-    render();
-  }
-});
-
-document.addEventListener('mouseup', e => {
-  if (e.button !== 0) return;
-
-  if (connect) {
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const blockEl = el?.closest('[data-block-id]');
-    const toId = blockEl ? +blockEl.dataset.blockId : null;
-    if (toId !== null && toId !== connect.fromId) completeConnect(toId);
-    else { connect = null; render(); }
-    return;
-  }
-
-  if (drag) {
-    if (moved) trySnap();
-    else if (lastDown?.blockId !== null) showBlockMenu(lastDown.blockId, e.clientX, e.clientY);
-    drag = null;
-    lastDown = null;
-    render();
-    return;
-  }
-
-  if (!moved && lastDown !== null) {
-    const elAtPoint = document.elementFromPoint(e.clientX, e.clientY);
-    if (!ctxMenu.contains(elAtPoint)) {
-      if (lastDown.arrowId != null) {
-        showArrowMenu(lastDown.arrowId, e.clientX, e.clientY);
-      } else if (lastDown.blockId != null) {
-        showBlockMenu(lastDown.blockId, e.clientX, e.clientY);
-      } else {
-        showCanvasMenu(e.clientX, e.clientY);
-      }
-    }
-  }
-  lastDown = null;
-});
-
-document.addEventListener('click', e => {
-  if (justShownMenu) return; // don't hide menu that was just shown by the triggering click
-  if (!ctxMenu.contains(e.target)) hideMenu();
-});
-
-svg.addEventListener('contextmenu', e => e.preventDefault());
 
 // --- Execution engine ---
 
@@ -697,7 +612,7 @@ async function processChain(startBlock, initialTable) {
     }
     // After processing this block, deposit the current table at any join inputs
     // connected via this block's out0 knob, then try to execute those joins.
-    for (const arrow of state.arrows.filter(a => a.fromId === cur.id && a.fromKnob === 'out0')) {
+    for (const arrow of state.arrows.filter(a => a.fromId === cur.id && a.fromKnob.startsWith('out'))) {
       joinInputs.set(`${arrow.toId}:${arrow.toKnob}`, table);
       await tryExecuteJoin(arrow.toId);
     }
@@ -747,7 +662,7 @@ async function tryExecuteJoin(joinId) {
 
 // Display an arquero table in the show modal.
 function showDataframe(title, table) {
-  document.getElementById('show-title').textContent = title;
+  showTitle.textContent = title;
   const cols = table.columnNames();
   const rows = table.objects({ limit: 200 }); // cap at 200 rows for display
 
@@ -766,21 +681,216 @@ function showDataframe(title, table) {
   if (table.numRows() > 200) {
     html += `<p class="df-truncated">Showing 200 of ${table.numRows()} rows</p>`;
   }
-  document.getElementById('show-body').innerHTML = html;
+  showBody.innerHTML = html;
   showModal.classList.remove('hidden');
 }
 
-document.getElementById('show-close').addEventListener('click', () => {
-  showModal.classList.add('hidden');
-});
-document.getElementById('show-overlay').addEventListener('click', () => {
-  showModal.classList.add('hidden');
-});
+// --- Init ---
+function init(container) {
+  container.innerHTML = `
+    <div id="palette"><h2>Blocks</h2></div>
+    <div id="canvas-area">
+      <button id="run-all-btn">Run</button>
+      <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#555"/>
+          </marker>
+        </defs>
+      </svg>
+    </div>
+    <div id="ctx-menu" class="hidden"></div>
+    <div id="show-modal" class="hidden">
+      <div id="show-overlay"></div>
+      <div id="show-content">
+        <div id="show-header">
+          <h3 id="show-title"></h3>
+          <button id="show-close" aria-label="Close">✕</button>
+        </div>
+        <div id="show-body"></div>
+      </div>
+    </div>
+  `;
 
-document.getElementById('run-all-btn').addEventListener('click', () => {
-  for (const block of state.blocks) {
-    if (block.type === 'csv') runStack(block.id);
+  palette   = container.querySelector('#palette');
+  svg       = container.querySelector('#canvas');
+  ctxMenu   = container.querySelector('#ctx-menu');
+  showModal = container.querySelector('#show-modal');
+  showTitle = container.querySelector('#show-title');
+  showBody  = container.querySelector('#show-body');
+
+  // Build palette
+  for (const [type, def] of Object.entries(BLOCK_TYPES)) {
+    const item = document.createElement('div');
+    item.className = 'palette-item';
+    item.dataset.type = type;
+    item.textContent = def.label;
+    palette.appendChild(item);
   }
-});
 
-render();
+  // Palette drag-to-create
+  palette.addEventListener('mousedown', e => {
+    const item = e.target.closest('.palette-item');
+    if (!item) return;
+    e.preventDefault();
+    hideMenu();
+    const type = item.dataset.type;
+    const rect = svg.getBoundingClientRect();
+    const bw = blockW(type), bh = blockH(type);
+    saveHistory();
+    const block = {
+      id: state.nextId++, type,
+      x: e.clientX - rect.left - bw / 2,
+      y: e.clientY - rect.top - bh / 2,
+      stackBelow: null,
+    };
+    state.blocks.push(block);
+    drag = { ids: [block.id], pivotId: block.id, offsetX: bw / 2, offsetY: bh / 2 };
+    lastDown = { blockId: block.id, arrowId: null };
+    moved = true;       // treat palette drag as already in motion
+    historySaved = true;
+    render();
+  });
+
+  // SVG interactions
+  svg.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    const rect = svg.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    // Clicks inside a foreignObject: inputs handle themselves; background clicks start a drag.
+    if (e.target.closest('foreignObject')) {
+      if (e.target.matches('input, button, select, textarea')) {
+        lastDown = null; // prevent stale state from triggering a menu on release
+      } else {
+        const blockEl = e.target.closest('[data-block-id]');
+        if (blockEl && !connect) {
+          e.preventDefault();
+          hideMenu();
+          const blockId = +blockEl.dataset.blockId;
+          const block = blockById(blockId);
+          lastDown = { blockId, arrowId: null };
+          moved = false;
+          historySaved = false;
+          drag = { ids: stackChain(blockId), pivotId: blockId, offsetX: mx - block.x, offsetY: my - block.y };
+        }
+      }
+      return;
+    }
+
+    e.preventDefault();
+    hideMenu();
+    const blockEl = e.target.closest('[data-block-id]');
+    const arrowEl = !blockEl ? e.target.closest('[data-arrow-id]') : null;
+    const blockId = blockEl ? +blockEl.dataset.blockId : null;
+    const arrowId = arrowEl ? +arrowEl.dataset.arrowId : null;
+    lastDown = { blockId, arrowId };
+    moved = false;
+    historySaved = false;
+
+    // Clicking an output knob triangle starts a connection immediately.
+    const knobId = e.target.getAttribute('data-knob-id');
+    if (knobId?.startsWith('out') && blockEl) {
+      lastDown = null;
+      startConnect(blockId, knobId);
+      return;
+    }
+
+    if (connect) return; // connection clicks handled in mouseup
+
+    if (blockId !== null) {
+      const block = blockById(blockId);
+      drag = {
+        ids: stackChain(blockId),
+        pivotId: blockId,
+        offsetX: mx - block.x,
+        offsetY: my - block.y,
+      };
+    }
+  });
+
+  svg.addEventListener('contextmenu', e => e.preventDefault());
+
+  document.addEventListener('mousemove', e => {
+    if (!drag && !connect) return;
+    const rect = svg.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    if (drag) {
+      if (!moved) {
+        if (!historySaved) { saveHistory(); historySaved = true; }
+        const above = blockAbove(drag.pivotId);
+        if (above) above.stackBelow = null;
+        moved = true;
+      }
+      moveStack(mx, my);
+      render();
+    }
+
+    if (connect) {
+      connect.mx = mx;
+      connect.my = my;
+      render();
+    }
+  });
+
+  document.addEventListener('mouseup', e => {
+    if (e.button !== 0) return;
+
+    if (connect) {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const blockEl = el?.closest('[data-block-id]');
+      const toId = blockEl ? +blockEl.dataset.blockId : null;
+      if (toId !== null && toId !== connect.fromId) completeConnect(toId);
+      else { connect = null; render(); }
+      return;
+    }
+
+    if (drag) {
+      if (moved) trySnap();
+      else if (lastDown?.blockId !== null) showBlockMenu(lastDown.blockId, e.clientX, e.clientY);
+      drag = null;
+      lastDown = null;
+      render();
+      return;
+    }
+
+    if (!moved && lastDown !== null) {
+      const elAtPoint = document.elementFromPoint(e.clientX, e.clientY);
+      if (!ctxMenu.contains(elAtPoint)) {
+        if (lastDown.arrowId != null) {
+          showArrowMenu(lastDown.arrowId, e.clientX, e.clientY);
+        } else if (lastDown.blockId != null) {
+          showBlockMenu(lastDown.blockId, e.clientX, e.clientY);
+        } else {
+          showCanvasMenu(e.clientX, e.clientY);
+        }
+      }
+    }
+    lastDown = null;
+  });
+
+  document.addEventListener('click', e => {
+    if (justShownMenu) return; // don't hide menu that was just shown by the triggering click
+    if (!ctxMenu.contains(e.target)) hideMenu();
+  });
+
+  container.querySelector('#show-close').addEventListener('click', () => {
+    showModal.classList.add('hidden');
+  });
+  container.querySelector('#show-overlay').addEventListener('click', () => {
+    showModal.classList.add('hidden');
+  });
+  container.querySelector('#run-all-btn').addEventListener('click', () => {
+    for (const block of state.blocks) {
+      if (block.type === 'csv') runStack(block.id);
+    }
+  });
+
+  render();
+}
+
+const _container = document.getElementById('datadrag');
+if (_container) init(_container);

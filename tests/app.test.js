@@ -56,7 +56,7 @@ test('every non-show block context menu shows Connect option', async ({ page }) 
                               'Summarize', 'Mutate', 'Slice', 'Unique', 'Join'].entries()) {
     await dragFromPalette(page, label, canvas.x + 150 + i * 10, canvas.y + 150 + i * 10);
     await clickBlock(page, i + 1);
-    await expect(page.locator('.menu-item', { hasText: 'Connect' })).toBeVisible();
+    await expect(page.locator('.menu-item', { hasText: 'Connect' }).first()).toBeVisible();
     await page.locator('#palette h2').click(); // close menu
   }
 });
@@ -97,7 +97,7 @@ test('connect csv to join creates an arrow', async ({ page }) => {
   await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 200);
   await dragFromPalette(page, 'Join', canvas.x + 450, canvas.y + 200);
   await clickBlock(page, 1);
-  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
   await clickBlock(page, 2);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(1);
 });
@@ -108,7 +108,7 @@ test('click connector shows delete option and removes arrow', async ({ page }) =
   await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 200);
   await dragFromPalette(page, 'Join', canvas.x + 650, canvas.y + 200);
   await clickBlock(page, 1);
-  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
   await clickBlock(page, 2);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(1);
   await page.locator('[data-arrow-id]').click();
@@ -120,21 +120,21 @@ test('click connector shows delete option and removes arrow', async ({ page }) =
 
 // --- Knob shape tests ---
 
-test('join block knobs are rendered as polygons (in0, in1, out0)', async ({ page }) => {
+test('join block knobs are rendered as polygons (in0, in1, out0, out1)', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
   await dragFromPalette(page, 'Join', canvas.x + 300, canvas.y + 200);
   const block = page.locator('[data-block-id="1"]');
-  await expect(block.locator('polygon')).toHaveCount(3);
+  await expect(block.locator('polygon')).toHaveCount(4);
   await expect(block.locator('circle')).toHaveCount(0);
 });
 
-test('csv block out0 knob is rendered as a polygon', async ({ page }) => {
+test('csv block out0 and out1 knobs are rendered as polygons', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
   await dragFromPalette(page, 'CSV', canvas.x + 300, canvas.y + 200);
   const block = page.locator('[data-block-id="1"]');
-  await expect(block.locator('polygon')).toHaveCount(1);
+  await expect(block.locator('polygon')).toHaveCount(2);
   await expect(block.locator('circle')).toHaveCount(0);
 });
 
@@ -147,11 +147,11 @@ test('join block accepts connections on both input knobs', async ({ page }) => {
   await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 300);
   await dragFromPalette(page, 'Join', canvas.x + 450, canvas.y + 200);
   await clickBlock(page, 1);
-  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
   await clickBlock(page, 3);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(1);
   await clickBlock(page, 2);
-  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
   await clickBlock(page, 3);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(2);
 });
@@ -165,13 +165,13 @@ test('join block rejects a third connection when both knobs are occupied', async
   await dragFromPalette(page, 'Join', canvas.x + 450, canvas.y + 200);
   for (const id of [1, 2]) {
     await clickBlock(page, id);
-    await page.locator('.menu-item', { hasText: 'Connect' }).click();
+    await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
     await clickBlock(page, 4);
   }
   await expect(page.locator('[data-arrow-id]')).toHaveCount(2);
   // Third attempt silently rejected
   await clickBlock(page, 3);
-  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
   await clickBlock(page, 4);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(2);
 });
@@ -182,7 +182,7 @@ test('connecting to a block with no input knobs does nothing', async ({ page }) 
   await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 200);
   await dragFromPalette(page, 'Show', canvas.x + 450, canvas.y + 200);
   await clickBlock(page, 1);
-  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
   await clickBlock(page, 2);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(0);
 });
@@ -192,7 +192,7 @@ test('self-connection attempt is rejected', async ({ page }) => {
   const canvas = await page.locator('#canvas').boundingBox();
   await dragFromPalette(page, 'CSV', canvas.x + 300, canvas.y + 200);
   await clickBlock(page, 1);
-  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
   await clickBlock(page, 1);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(0);
 });
@@ -205,7 +205,7 @@ test('deleting a block removes its connected arrows', async ({ page }) => {
   await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 200);
   await dragFromPalette(page, 'Join', canvas.x + 450, canvas.y + 200);
   await clickBlock(page, 1);
-  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
   await clickBlock(page, 2);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(1);
   await clickBlock(page, 1);
@@ -247,8 +247,8 @@ test('csv block snaps above filter when dropped nearby', async ({ page }) => {
   await dragFromPalette(page, 'CSV',    canvas.x + 300, canvas.y + 200);
   const filterPos = parseTranslate(await page.locator('[data-block-id="1"]').getAttribute('transform'));
   const csvPos    = parseTranslate(await page.locator('[data-block-id="2"]').getAttribute('transform'));
-  // After snap: csv.y + H_WIDE (80) should equal filter.y.
-  expect(csvPos.y + 80).toBeCloseTo(filterPos.y, 0);
+  // After snap: csv.y + H_WIDE (66) should equal filter.y.
+  expect(csvPos.y + 66).toBeCloseTo(filterPos.y, 0);
 });
 
 test('dragging the top block in a stack moves the whole chain', async ({ page }) => {
@@ -279,7 +279,7 @@ test('undo after creating an arrow removes it', async ({ page }) => {
   await dragFromPalette(page, 'CSV',  canvas.x + 150, canvas.y + 200);
   await dragFromPalette(page, 'Join', canvas.x + 450, canvas.y + 200);
   await clickBlock(page, 1);
-  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
   await clickBlock(page, 2);
   await expect(page.locator('[data-arrow-id]')).toHaveCount(1);
   await page.mouse.click(canvas.x + 600, canvas.y + 400);
@@ -491,10 +491,10 @@ test('groupby and summarize produce one row per group', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
   // Stack (bottom→top): Show(1), Summarize(2), GroupBy(3), CSV(4).
-  await dragFromPalette(page, 'Show',      canvas.x + 300, canvas.y + 580);
-  await dragFromPalette(page, 'Summarize', canvas.x + 300, canvas.y + 470);
-  await dragFromPalette(page, 'Group By',  canvas.x + 300, canvas.y + 370);
-  await dragFromPalette(page, 'CSV',       canvas.x + 300, canvas.y + 290);
+  await dragFromPalette(page, 'Show',      canvas.x + 300, canvas.y + 500);
+  await dragFromPalette(page, 'Summarize', canvas.x + 300, canvas.y + 400);
+  await dragFromPalette(page, 'Group By',  canvas.x + 300, canvas.y + 320);
+  await dragFromPalette(page, 'CSV',       canvas.x + 300, canvas.y + 250);
   // Group by color: blue(2), red(1), green(1) → 3 groups.
   await page.locator('[data-block-id="3"] input[type="text"]').fill('color');
   await page.locator('[data-block-id="2"] input[type="text"]').fill('n = count()');
@@ -565,12 +565,12 @@ test('join block inner-joins two CSV sources and runs when second input arrives'
 
   // Connect CSV1(3).out0 → Join(2).in0
   await clickBlock(page, 3);
-  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
   await clickBlock(page, 2); // completes connection to in0
 
   // Connect CSV2(4).out0 → Join(2).in1
   await clickBlock(page, 4);
-  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
   await clickBlock(page, 2); // completes connection to in1
 
   await expect(page.locator('[data-arrow-id]')).toHaveCount(2);
@@ -600,10 +600,10 @@ test('re-running CSV1 after both inputs loaded re-executes join', async ({ page 
   await dragFromPalette(page, 'CSV', canvas.x + 630, canvas.y + 140); // id=4
   await page.locator('[data-block-id="2"] input[type="text"]').fill('left.name = right.name');
   await clickBlock(page, 3);
-  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
   await clickBlock(page, 2);
   await clickBlock(page, 4);
-  await page.locator('.menu-item', { hasText: 'Connect' }).click();
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
   await clickBlock(page, 2);
   await loadCSV(page, 3, 'tests/test-data-1.csv');
   await loadCSV(page, 4, 'tests/test-data-2.csv');
