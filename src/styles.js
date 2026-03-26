@@ -148,6 +148,17 @@ _style.textContent = `* { box-sizing: border-box; margin: 0; padding: 0; }
   border-radius: 3px;
 }
 
+.chart-axis-label {
+  font-size: 11px;
+  color: #555;
+  flex-shrink: 0;
+}
+
+.chart-axis-input {
+  width: 0;   /* flex will grow it */
+  flex: 1;
+}
+
 .csv-filename {
   flex: 1;
   font-size: 10px;

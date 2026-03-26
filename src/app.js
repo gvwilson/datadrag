@@ -5,6 +5,7 @@ import {
   canInitiateConnect, canReceiveConnect,
 } from './blocks.js';
 import * as aq from './aq-browser.js';
+import * as Plot from '@observablehq/plot';
 import { BUILTIN_DATASETS } from './data.js';
 import './styles.js';
 
@@ -174,6 +175,63 @@ function buildBlockControls(block) {
     input.addEventListener('mousedown', e => { e.stopPropagation(); lastDown = null; });
     input.addEventListener('input', e => { block.showName = e.target.value; });
     div.appendChild(input);
+
+  } else if (block.type === 'chart') {
+    // Row 1: title input
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'block-expr-input';
+    nameInput.value = block.chartName ?? '';
+    nameInput.addEventListener('mousedown', e => { e.stopPropagation(); lastDown = null; });
+    nameInput.addEventListener('input', e => { block.chartName = e.target.value; });
+    div.appendChild(nameInput);
+
+    // Row 2: chart type selector
+    const typeSelect = document.createElement('select');
+    typeSelect.className = 'block-builtin-select block-chart-type';
+    for (const [val, label] of [['bar','Bar'],['line','Line'],['dot','Dot']]) {
+      const opt = document.createElement('option');
+      opt.value = val; opt.textContent = label;
+      if (val === (block.chartType || 'bar')) opt.selected = true;
+      typeSelect.appendChild(opt);
+    }
+    typeSelect.addEventListener('mousedown', e => { e.stopPropagation(); lastDown = null; });
+    typeSelect.addEventListener('change', e => { block.chartType = e.target.value; });
+    div.appendChild(typeSelect);
+
+    // Row 3: x and y column inputs
+    const xyRow = document.createElement('div');
+    xyRow.className = 'block-row';
+    for (const [prop, key] of [['chartX','x'],['chartY','y']]) {
+      const lbl = document.createElement('span');
+      lbl.className = 'chart-axis-label';
+      lbl.textContent = `${key}:`;
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'block-expr-input chart-axis-input';
+      inp.value = block[prop] ?? '';
+      inp.addEventListener('mousedown', e => { e.stopPropagation(); lastDown = null; });
+      inp.addEventListener('input', e => { block[prop] = e.target.value; });
+      xyRow.appendChild(lbl);
+      xyRow.appendChild(inp);
+    }
+    div.appendChild(xyRow);
+
+    // Row 4: optional color column input
+    const colorRow = document.createElement('div');
+    colorRow.className = 'block-row';
+    const colorLbl = document.createElement('span');
+    colorLbl.className = 'chart-axis-label';
+    colorLbl.textContent = 'color:';
+    const colorInp = document.createElement('input');
+    colorInp.type = 'text';
+    colorInp.className = 'block-expr-input chart-axis-input';
+    colorInp.value = block.chartColor ?? '';
+    colorInp.addEventListener('mousedown', e => { e.stopPropagation(); lastDown = null; });
+    colorInp.addEventListener('input', e => { block.chartColor = e.target.value; });
+    colorRow.appendChild(colorLbl);
+    colorRow.appendChild(colorInp);
+    div.appendChild(colorRow);
 
   } else if (EXPR_PLACEHOLDER[block.type] !== undefined) {
     const input = document.createElement('input');
@@ -426,7 +484,26 @@ function startConnect(blockId, knobId) {
   render();
 }
 
+// Returns true if adding an arrow fromId→toId would create a cycle.
+// Uses DFS: if toId can already reach fromId through existing arrows, the new edge closes a cycle.
+function wouldCreateCycle(fromId, toId) {
+  const visited = new Set();
+  const stack = [toId];
+  while (stack.length) {
+    const cur = stack.pop();
+    if (cur === fromId) return true;
+    if (visited.has(cur)) continue;
+    visited.add(cur);
+    for (const arrow of state.arrows.filter(a => a.fromId === cur)) stack.push(arrow.toId);
+  }
+  return false;
+}
+
 function completeConnect(toId) {
+  if (wouldCreateCycle(connect.fromId, toId)) {
+    alert('Cannot create connection: it would introduce a cycle in the dataflow graph.');
+    connect = null; render(); return;
+  }
   const toBlock = blockById(toId);
   if (!toBlock || !canReceiveConnect(toBlock.type)) { connect = null; render(); return; }
   const usedKnobs = state.arrows.filter(a => a.toId === toId).map(a => a.toKnob);
@@ -602,6 +679,8 @@ async function processChain(startBlock, initialTable) {
         grouped = null;
       } else if (cur.type === 'show') {
         showDataframe(cur.showName, table);
+      } else if (cur.type === 'chart') {
+        showChart(cur, table);
       }
     } catch (err) {
       alert(`Error in ${BLOCK_TYPES[cur.type].label} block: ${err.message}`);
@@ -682,6 +761,31 @@ function showDataframe(title, table) {
   showModal.classList.remove('hidden');
 }
 
+// Display an Observable Plot chart in the show modal.
+function showChart(block, table) {
+  const xCol = (block.chartX || '').trim();
+  const yCol = (block.chartY || '').trim();
+  if (!xCol || !yCol) {
+    alert(`Chart block "${block.chartName}": enter both x and y column names.`);
+    return;
+  }
+  const data = table.objects();
+  const type = block.chartType || 'bar';
+  const colorCol = (block.chartColor || '').trim() || null;
+  let mark;
+  if (type === 'bar')       mark = Plot.barY(data, { x: xCol, y: yCol, fill: colorCol ?? xCol });
+  else if (type === 'line') mark = Plot.lineY(data, { x: xCol, y: yCol, stroke: colorCol });
+  else                      mark = Plot.dot(data, { x: xCol, y: yCol, fill: colorCol });
+
+  const plotOptions = { marks: [mark], marginLeft: 60, style: { background: 'transparent' } };
+  if (colorCol) plotOptions.color = { legend: true };
+  const plotEl = Plot.plot(plotOptions);
+  showTitle.textContent = block.chartName || 'Chart';
+  showBody.innerHTML = '';
+  showBody.appendChild(plotEl);
+  showModal.classList.remove('hidden');
+}
+
 // --- Init ---
 function init(container) {
   container.innerHTML = `
@@ -744,6 +848,11 @@ function init(container) {
     if (type === 'show') {
       const n = state.blocks.filter(b => b.type === 'show').length + 1;
       block.showName = `Table ${n}`;
+    }
+    if (type === 'chart') {
+      const n = state.blocks.filter(b => b.type === 'chart').length + 1;
+      block.chartName = `Chart ${n}`;
+      block.chartType = 'bar';
     }
     state.blocks.push(block);
     drag = { ids: [block.id], pivotId: block.id, offsetX: bw / 2, offsetY: bh / 2 };
@@ -844,7 +953,7 @@ function init(container) {
       const el = document.elementFromPoint(e.clientX, e.clientY);
       const blockEl = el?.closest('[data-block-id]');
       const toId = blockEl ? +blockEl.dataset.blockId : null;
-      if (toId !== null && toId !== connect.fromId) completeConnect(toId);
+      if (toId !== null) completeConnect(toId);
       else { connect = null; render(); }
       return;
     }

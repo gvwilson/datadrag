@@ -21,11 +21,17 @@ export const BLOCK_TYPES = {
   deduplicate: { label: 'Unique',     top: 'inputtable',  bottom: 'outputtable', knobs: ['out0', 'out1'],          wide: true },
   join:        { label: 'Join',       top: 'flat',        bottom: 'outputtable', knobs: ['in0','in1','out0','out1'], wide: true },
   show:        { label: 'Show',       top: 'inputtable',  bottom: 'outputtable', knobs: [],                        wide: true },
+  chart:       { label: 'Chart',      top: 'inputtable',  bottom: 'outputtable', knobs: [],                        wide: true, height: 106 },
 };
 
 // Rendered width/height of a block type on the canvas.
 export function blockW(type) { return BLOCK_TYPES[type]?.wide ? W_WIDE : W; }
-export function blockH(type) { return BLOCK_TYPES[type]?.wide ? H_WIDE : H; }
+export function blockH(type) {
+  const bt = BLOCK_TYPES[type];
+  if (!bt) return H;
+  if (bt.height) return bt.height;
+  return bt.wide ? H_WIDE : H;
+}
 
 // SVG path for a block drawn at origin (0,0); use a <g transform="translate(x,y)"> to position it.
 //

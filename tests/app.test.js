@@ -27,7 +27,7 @@ test('page loads with palette and canvas', async ({ page }) => {
   await expect(page.locator('#palette')).toBeVisible();
   await expect(page.locator('#canvas')).toBeVisible();
   for (const label of ['CSV Upload', 'Data Set', 'Filter', 'Select', 'Sort', 'Group By', 'Summarize',
-                        'Mutate', 'Slice', 'Unique', 'Join', 'Show']) {
+                        'Mutate', 'Slice', 'Unique', 'Join', 'Show', 'Chart']) {
     await expect(page.locator('.palette-item', { hasText: label })).toBeVisible();
   }
 });
@@ -187,14 +187,47 @@ test('connecting to a block with no input knobs does nothing', async ({ page }) 
   await expect(page.locator('[data-arrow-id]')).toHaveCount(0);
 });
 
-test('self-connection attempt is rejected', async ({ page }) => {
+// Helper: click a block in a way that accepts a dialog that may appear during mouse-up.
+async function clickBlockExpectDialog(page, blockId) {
+  const g = page.locator(`[data-block-id="${blockId}"]`);
+  const box = await g.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + 8);
+  await page.mouse.down();
+  const dialogPromise = page.waitForEvent('dialog');
+  const upPromise = page.mouse.up();
+  const dialog = await dialogPromise;
+  await dialog.accept();
+  await upPromise;
+  return dialog;
+}
+
+test('self-connection attempt is rejected with an error', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await dragFromPalette(page, 'CSV Upload', canvas.x + 300, canvas.y + 200);
+  await dragFromPalette(page, 'Join', canvas.x + 300, canvas.y + 200);
   await clickBlock(page, 1);
   await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
-  await clickBlock(page, 1);
+  const dialog = await clickBlockExpectDialog(page, 1);
+  expect(dialog.message()).toContain('cycle');
   await expect(page.locator('[data-arrow-id]')).toHaveCount(0);
+});
+
+test('connection that would create a cycle is rejected with an error', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  // Two joins: connect Join1 out → Join2 in (valid), then try Join2 out → Join1 in (cycle)
+  await dragFromPalette(page, 'Join', canvas.x + 150, canvas.y + 200);
+  await dragFromPalette(page, 'Join', canvas.x + 450, canvas.y + 200);
+  await clickBlock(page, 1);
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
+  await clickBlock(page, 2);
+  await expect(page.locator('[data-arrow-id]')).toHaveCount(1);
+  // Attempt Join2 out → Join1 in (would create cycle Join1→Join2→Join1)
+  await clickBlock(page, 2);
+  await page.locator('.menu-item', { hasText: 'Connect' }).first().click();
+  const dialog = await clickBlockExpectDialog(page, 1);
+  expect(dialog.message()).toContain('cycle');
+  await expect(page.locator('[data-arrow-id]')).toHaveCount(1);
 });
 
 // --- Delete cascade ---
@@ -419,6 +452,102 @@ test('show modal closes when the overlay is clicked', async ({ page }) => {
   // clicking by coordinates would hit #show-content which sits on top.
   await page.evaluate(() => document.getElementById('show-overlay').click());
   await expect(page.locator('#show-modal')).toHaveClass(/hidden/);
+});
+
+// --- Chart block ---
+
+test('chart block renders name input, type select, x/y inputs, and color input', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'Chart', canvas.x + 300, canvas.y + 200);
+  const block = page.locator('[data-block-id="1"]');
+  await expect(block.locator('input[type="text"]').first()).toHaveValue('Chart 1');
+  await expect(block.locator('select')).toHaveValue('bar');
+  await expect(block.locator('input[type="text"]')).toHaveCount(4); // name + x + y + color
+});
+
+test('dataset and chart stack displays a Plot SVG in the modal', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'Chart',   canvas.x + 300, canvas.y + 300);
+  await dragFromPalette(page, 'Data Set', canvas.x + 300, canvas.y + 200);
+
+  // Select penguins dataset (id=2 is Data Set, id=1 is Chart)
+  await page.locator('[data-block-id="2"] select').selectOption('penguins');
+  await expect(page.locator('[data-block-id="2"] select')).toHaveAttribute('data-loaded', 'penguins', { timeout: 3000 });
+
+  // Set chart x and y columns (second and third text inputs in the Chart block)
+  const chartInputs = page.locator('[data-block-id="1"] input[type="text"]');
+  await chartInputs.nth(1).fill('species');
+  await chartInputs.nth(2).fill('bill_length_mm');
+
+  await page.locator('#run-all-btn').click();
+
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#show-title')).toHaveText('Chart 1');
+  await expect(page.locator('#show-body svg [aria-label="bar"]')).toBeVisible();
+});
+
+test('chart block renders a line mark when type is set to line', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'Chart',    canvas.x + 300, canvas.y + 300);
+  await dragFromPalette(page, 'Data Set', canvas.x + 300, canvas.y + 200);
+
+  await page.locator('[data-block-id="2"] select').selectOption('penguins');
+  await expect(page.locator('[data-block-id="2"] select')).toHaveAttribute('data-loaded', 'penguins', { timeout: 3000 });
+
+  await page.locator('[data-block-id="1"] select').selectOption('line');
+  const chartInputs = page.locator('[data-block-id="1"] input[type="text"]');
+  await chartInputs.nth(1).fill('bill_length_mm');
+  await chartInputs.nth(2).fill('bill_depth_mm');
+
+  await page.locator('#run-all-btn').click();
+
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#show-body svg [aria-label="line"]')).toBeVisible();
+});
+
+test('chart block renders a dot mark when type is set to dot', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'Chart',    canvas.x + 300, canvas.y + 300);
+  await dragFromPalette(page, 'Data Set', canvas.x + 300, canvas.y + 200);
+
+  await page.locator('[data-block-id="2"] select').selectOption('penguins');
+  await expect(page.locator('[data-block-id="2"] select')).toHaveAttribute('data-loaded', 'penguins', { timeout: 3000 });
+
+  await page.locator('[data-block-id="1"] select').selectOption('dot');
+  const chartInputs = page.locator('[data-block-id="1"] input[type="text"]');
+  await chartInputs.nth(1).fill('bill_length_mm');
+  await chartInputs.nth(2).fill('bill_depth_mm');
+
+  await page.locator('#run-all-btn').click();
+
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#show-body svg [aria-label="dot"]')).toBeVisible();
+});
+
+test('chart color column produces a legend in the SVG', async ({ page }) => {
+  await page.goto('/');
+  const canvas = await page.locator('#canvas').boundingBox();
+  await dragFromPalette(page, 'Chart',    canvas.x + 300, canvas.y + 300);
+  await dragFromPalette(page, 'Data Set', canvas.x + 300, canvas.y + 200);
+
+  await page.locator('[data-block-id="2"] select').selectOption('penguins');
+  await expect(page.locator('[data-block-id="2"] select')).toHaveAttribute('data-loaded', 'penguins', { timeout: 3000 });
+
+  await page.locator('[data-block-id="1"] select').selectOption('dot');
+  const chartInputs = page.locator('[data-block-id="1"] input[type="text"]');
+  await chartInputs.nth(1).fill('bill_length_mm');
+  await chartInputs.nth(2).fill('bill_depth_mm');
+  await chartInputs.nth(3).fill('species');   // color column
+
+  await page.locator('#run-all-btn').click();
+
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  // Observable Plot wraps output in <figure> only when a legend is present; bare SVG otherwise.
+  await expect(page.locator('#show-body figure')).toBeVisible();
 });
 
 // --- Data science block controls ---
