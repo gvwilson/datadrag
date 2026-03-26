@@ -5,6 +5,8 @@ import {
   canInitiateConnect, canReceiveConnect,
 } from './blocks.js';
 import * as aq from './aq-browser.js';
+import { BUILTIN_DATASETS } from './data.js';
+import './styles.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const SNAP_DIST = 60; // large affordance makes stacking easy
@@ -72,7 +74,7 @@ function svgEl(tag, attrs = {}) {
 
 // Render a knob as a triangle (indent or outdent) or circle.
 function knobEl(knob) {
-  const style = { fill: '#2980b9', stroke: 'white', 'stroke-width': 1.5 };
+  const style = { fill: '#2980b9' };
   if (knob.shape === 'indent') {
     // Triangle pointing down into the block; base on top edge (y=0), tip at (x, KNOB_R).
     return svgEl('polygon', { ...style,
@@ -105,20 +107,46 @@ function buildBlockControls(block) {
   div.className = 'block-controls';
 
   if (block.type === 'csv') {
+    // Built-in dataset selector
+    const select = document.createElement('select');
+    select.className = 'block-builtin-select';
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = '— built-in data —';
+    defaultOpt.disabled = true;
+    defaultOpt.selected = true;
+    select.appendChild(defaultOpt);
+    for (const ds of BUILTIN_DATASETS) {
+      const opt = document.createElement('option');
+      opt.value = ds.value;
+      opt.textContent = ds.label;
+      select.appendChild(opt);
+    }
+    select.addEventListener('mousedown', e => { e.stopPropagation(); lastDown = null; });
+    select.addEventListener('change', async e => {
+      const ds = BUILTIN_DATASETS.find(d => d.value === e.target.value);
+      if (!ds) return;
+      block.csvName = ds.value;
+      const text = ds.csv;
+      csvTables.set(block.id, aq.fromCSV(text));
+      fileInput.dataset.loaded = ds.value; // signals tests that async load is complete
+    });
+    div.appendChild(select);
+
+    // File upload (for custom CSV files)
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = '.csv';
     fileInput.className = 'block-file-input';
-    fileInput.addEventListener('mousedown', e => e.stopPropagation());
+    fileInput.addEventListener('mousedown', e => { e.stopPropagation(); lastDown = null; });
     fileInput.addEventListener('change', async e => {
       const file = e.target.files[0];
       if (!file) return;
       block.csvName = file.name;
       const text = await file.text();
       csvTables.set(block.id, aq.fromCSV(text));
-      // Update the filename label without a full re-render
-      const lbl = fo.querySelector('.csv-filename');
-      if (lbl) lbl.textContent = file.name;
+      fileInput.dataset.loaded = file.name; // signals tests that async load is complete
+      select.selectedIndex = 0; // reset built-in selector
     });
 
     const fileRow = document.createElement('div');
@@ -126,27 +154,13 @@ function buildBlockControls(block) {
     fileRow.appendChild(fileInput);
     div.appendChild(fileRow);
 
-    const bottomRow = document.createElement('div');
-    bottomRow.className = 'block-row';
-    const filenameSpan = document.createElement('span');
-    filenameSpan.className = 'csv-filename';
-    filenameSpan.textContent = block.csvName || 'No file selected';
-    const runBtn = document.createElement('button');
-    runBtn.textContent = 'Run';
-    runBtn.className = 'block-run-btn';
-    runBtn.addEventListener('mousedown', e => e.stopPropagation());
-    runBtn.addEventListener('click', e => { e.stopPropagation(); runStack(block.id); });
-    bottomRow.appendChild(filenameSpan);
-    bottomRow.appendChild(runBtn);
-    div.appendChild(bottomRow);
-
   } else if (block.type === 'filter') {
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'block-expr-input';
     input.placeholder = "e.g. age > 65 and color == 'blue'";
     input.value = block.expr || '';
-    input.addEventListener('mousedown', e => e.stopPropagation());
+    input.addEventListener('mousedown', e => { e.stopPropagation(); lastDown = null; });
     input.addEventListener('input', e => { block.expr = e.target.value; });
     div.appendChild(input);
 
@@ -156,7 +170,7 @@ function buildBlockControls(block) {
     input.className = 'block-expr-input';
     input.placeholder = 'Display name';
     input.value = block.showName || '';
-    input.addEventListener('mousedown', e => e.stopPropagation());
+    input.addEventListener('mousedown', e => { e.stopPropagation(); lastDown = null; });
     input.addEventListener('input', e => { block.showName = e.target.value; });
     div.appendChild(input);
 
@@ -166,7 +180,7 @@ function buildBlockControls(block) {
     input.className = 'block-expr-input';
     input.placeholder = EXPR_PLACEHOLDER[block.type];
     input.value = block.expr || '';
-    input.addEventListener('mousedown', e => e.stopPropagation());
+    input.addEventListener('mousedown', e => { e.stopPropagation(); lastDown = null; });
     input.addEventListener('input', e => { block.expr = e.target.value; });
     div.appendChild(input);
 
@@ -177,7 +191,7 @@ function buildBlockControls(block) {
     input.placeholder = 'rows to keep';
     input.min = 1;
     input.value = block.sliceN || '';
-    input.addEventListener('mousedown', e => e.stopPropagation());
+    input.addEventListener('mousedown', e => { e.stopPropagation(); lastDown = null; });
     input.addEventListener('input', e => { block.sliceN = e.target.value; });
     div.appendChild(input);
 
@@ -453,13 +467,32 @@ palette.addEventListener('mousedown', e => {
 // --- SVG events ---
 svg.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
-  // Let HTML controls inside foreignObject handle their own events.
-  if (e.target.closest('foreignObject')) return;
-  e.preventDefault();
-  hideMenu();
   const rect = svg.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
+
+  // Clicks inside a foreignObject: inputs handle themselves; background clicks start a drag.
+  if (e.target.closest('foreignObject')) {
+    if (e.target.matches('input, button, select, textarea')) {
+      lastDown = null; // prevent stale state from triggering a menu on release
+    } else {
+      const blockEl = e.target.closest('[data-block-id]');
+      if (blockEl && !connect) {
+        e.preventDefault();
+        hideMenu();
+        const blockId = +blockEl.dataset.blockId;
+        const block = blockById(blockId);
+        lastDown = { blockId, arrowId: null };
+        moved = false;
+        historySaved = false;
+        drag = { ids: stackChain(blockId), pivotId: blockId, offsetX: mx - block.x, offsetY: my - block.y };
+      }
+    }
+    return;
+  }
+
+  e.preventDefault();
+  hideMenu();
   const blockEl = e.target.closest('[data-block-id]');
   const arrowEl = !blockEl ? e.target.closest('[data-arrow-id]') : null;
   const blockId = blockEl ? +blockEl.dataset.blockId : null;
@@ -521,15 +554,21 @@ document.addEventListener('mouseup', e => {
     if (moved) trySnap();
     else if (lastDown?.blockId !== null) showBlockMenu(lastDown.blockId, e.clientX, e.clientY);
     drag = null;
+    lastDown = null;
     render();
     return;
   }
 
-  if (!moved) {
-    if (lastDown?.arrowId !== null && lastDown?.arrowId !== undefined) {
-      showArrowMenu(lastDown.arrowId, e.clientX, e.clientY);
-    } else if (lastDown?.blockId === null) {
-      showCanvasMenu(e.clientX, e.clientY);
+  if (!moved && lastDown !== null) {
+    const elAtPoint = document.elementFromPoint(e.clientX, e.clientY);
+    if (!ctxMenu.contains(elAtPoint)) {
+      if (lastDown.arrowId != null) {
+        showArrowMenu(lastDown.arrowId, e.clientX, e.clientY);
+      } else if (lastDown.blockId != null) {
+        showBlockMenu(lastDown.blockId, e.clientX, e.clientY);
+      } else {
+        showCanvasMenu(e.clientX, e.clientY);
+      }
     }
   }
   lastDown = null;
@@ -736,6 +775,12 @@ document.getElementById('show-close').addEventListener('click', () => {
 });
 document.getElementById('show-overlay').addEventListener('click', () => {
   showModal.classList.add('hidden');
+});
+
+document.getElementById('run-all-btn').addEventListener('click', () => {
+  for (const block of state.blocks) {
+    if (block.type === 'csv') runStack(block.id);
+  }
 });
 
 render();

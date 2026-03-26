@@ -13,6 +13,10 @@ setup:
 	npm install
 	npx playwright install --with-deps
 
+## build: build the bundle
+build:
+	npm run build
+
 ## run: run local server on port 3000
 run:
 	npx serve . -p 3000

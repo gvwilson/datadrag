@@ -27,7 +27,7 @@ test('page loads with palette and canvas', async ({ page }) => {
   await expect(page.locator('#palette')).toBeVisible();
   await expect(page.locator('#canvas')).toBeVisible();
   for (const label of ['CSV', 'Filter', 'Select', 'Sort', 'Group By', 'Summarize',
-                        'Mutate', 'Slice', 'Deduplicate', 'Join', 'Show']) {
+                        'Mutate', 'Slice', 'Unique', 'Join', 'Show']) {
     await expect(page.locator('.palette-item', { hasText: label })).toBeVisible();
   }
 });
@@ -53,7 +53,7 @@ test('every non-show block context menu shows Connect option', async ({ page }) 
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
   for (const [i, label] of ['CSV', 'Filter', 'Select', 'Sort', 'Group By',
-                              'Summarize', 'Mutate', 'Slice', 'Deduplicate', 'Join'].entries()) {
+                              'Summarize', 'Mutate', 'Slice', 'Unique', 'Join'].entries()) {
     await dragFromPalette(page, label, canvas.x + 150 + i * 10, canvas.y + 150 + i * 10);
     await clickBlock(page, i + 1);
     await expect(page.locator('.menu-item', { hasText: 'Connect' })).toBeVisible();
@@ -307,13 +307,13 @@ test('undo after moving a block restores its position', async ({ page }) => {
 
 // --- Block control rendering tests ---
 
-test('csv block renders a file input and Run button', async ({ page }) => {
+test('csv block renders a file input', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
   await dragFromPalette(page, 'CSV', canvas.x + 300, canvas.y + 200);
   const block = page.locator('[data-block-id="1"]');
   await expect(block.locator('input[type="file"]')).toHaveCount(1);
-  await expect(block.locator('button')).toHaveText('Run');
+  await expect(page.locator('#run-all-btn')).toBeVisible();
 });
 
 test('filter block renders a text input', async ({ page }) => {
@@ -337,7 +337,7 @@ test('run without a file loaded shows an alert', async ({ page }) => {
   // Start click without awaiting — alert() blocks the browser, so we must
   // accept the dialog before the click action can complete.
   const dialogPromise = page.waitForEvent('dialog');
-  const clickPromise  = page.locator('[data-block-id="1"] button').click();
+  const clickPromise  = page.locator('#run-all-btn').click();
   const dialog = await dialogPromise;
   expect(dialog.message()).toContain('No CSV file');
   await dialog.accept();
@@ -347,10 +347,10 @@ test('run without a file loaded shows an alert', async ({ page }) => {
 // Helper: load a CSV file into a csv block and wait for the async read to finish.
 async function loadCSV(page, blockId, filePath) {
   await page.locator(`[data-block-id="${blockId}"] input[type="file"]`).setInputFiles(filePath);
-  // The change handler sets the .csv-filename label after file.text() resolves.
+  // The change handler sets data-loaded after file.text() resolves.
   const filename = filePath.split('/').pop();
-  await expect(page.locator(`[data-block-id="${blockId}"] .csv-filename`))
-    .toHaveText(filename, { timeout: 3000 });
+  await expect(page.locator(`[data-block-id="${blockId}"] input[type="file"]`))
+    .toHaveAttribute('data-loaded', filename, { timeout: 3000 });
 }
 
 test('csv and show stack executes and displays modal with data', async ({ page }) => {
@@ -364,7 +364,7 @@ test('csv and show stack executes and displays modal with data', async ({ page }
   await page.locator('[data-block-id="1"] input[type="text"]').fill('My Results');
   await loadCSV(page, 2, 'tests/test-data-1.csv');
 
-  await page.locator('[data-block-id="2"] button').click();
+  await page.locator('#run-all-btn').click();
 
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
   await expect(page.locator('#show-title')).toHaveText('My Results');
@@ -385,7 +385,7 @@ test('filter expression reduces rows shown in modal', async ({ page }) => {
   await page.locator('[data-block-id="2"] input[type="text"]').fill('age > 25');
   await loadCSV(page, 3, 'tests/test-data-1.csv');
 
-  await page.locator('[data-block-id="3"] button').click();
+  await page.locator('#run-all-btn').click();
 
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
   await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(2);
@@ -397,7 +397,7 @@ test('show modal closes when the close button is clicked', async ({ page }) => {
   await dragFromPalette(page, 'Show', canvas.x + 300, canvas.y + 300);
   await dragFromPalette(page, 'CSV',  canvas.x + 300, canvas.y + 200);
   await loadCSV(page, 2, 'tests/test-data-1.csv');
-  await page.locator('[data-block-id="2"] button').click();
+  await page.locator('#run-all-btn').click();
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
 
   await page.locator('#show-close').click();
@@ -410,7 +410,7 @@ test('show modal closes when the overlay is clicked', async ({ page }) => {
   await dragFromPalette(page, 'Show', canvas.x + 300, canvas.y + 300);
   await dragFromPalette(page, 'CSV',  canvas.x + 300, canvas.y + 200);
   await loadCSV(page, 2, 'tests/test-data-1.csv');
-  await page.locator('[data-block-id="2"] button').click();
+  await page.locator('#run-all-btn').click();
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
 
   // Click via evaluate so the overlay element receives the event directly —
@@ -456,7 +456,7 @@ test('select reduces columns shown in modal', async ({ page }) => {
   // Select only name and color (drop age column) — 2 of 3 columns.
   await page.locator('[data-block-id="2"] input[type="text"]').fill('name, color');
   await loadCSV(page, 3, 'tests/test-data-1.csv');
-  await page.locator('[data-block-id="3"] button').click();
+  await page.locator('#run-all-btn').click();
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
   await expect(page.locator('#show-body .df-table th')).toHaveCount(2);
   await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(4);
@@ -469,7 +469,7 @@ test('sort orders rows by column value', async ({ page }) => {
   // Sort by age ascending; Charlie(20) should be first.
   await page.locator('[data-block-id="2"] input[type="text"]').fill('age');
   await loadCSV(page, 3, 'tests/test-data-1.csv');
-  await page.locator('[data-block-id="3"] button').click();
+  await page.locator('#run-all-btn').click();
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
   // First column (name) of first row should be Charlie.
   await expect(page.locator('#show-body .df-table tbody tr:first-child td').first()).toHaveText('Charlie');
@@ -482,7 +482,7 @@ test('sort descending puts largest value first', async ({ page }) => {
   // Sort by age desc; Diana(35) should be first.
   await page.locator('[data-block-id="2"] input[type="text"]').fill('age desc');
   await loadCSV(page, 3, 'tests/test-data-1.csv');
-  await page.locator('[data-block-id="3"] button').click();
+  await page.locator('#run-all-btn').click();
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
   await expect(page.locator('#show-body .df-table tbody tr:first-child td').first()).toHaveText('Diana');
 });
@@ -499,7 +499,7 @@ test('groupby and summarize produce one row per group', async ({ page }) => {
   await page.locator('[data-block-id="3"] input[type="text"]').fill('color');
   await page.locator('[data-block-id="2"] input[type="text"]').fill('n = count()');
   await loadCSV(page, 4, 'tests/test-data-1.csv');
-  await page.locator('[data-block-id="4"] button').click();
+  await page.locator('#run-all-btn').click();
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
   await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(3);
 });
@@ -511,7 +511,7 @@ test('mutate adds a new column', async ({ page }) => {
   // Add a boolean column: senior = age > 29.
   await page.locator('[data-block-id="2"] input[type="text"]').fill('senior = age > 29');
   await loadCSV(page, 3, 'tests/test-data-1.csv');
-  await page.locator('[data-block-id="3"] button').click();
+  await page.locator('#run-all-btn').click();
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
   // Original 3 columns + senior = 4 columns, all 4 rows preserved.
   await expect(page.locator('#show-body .df-table th')).toHaveCount(4);
@@ -524,7 +524,7 @@ test('slice keeps only the first N rows', async ({ page }) => {
   await threeBlockStack(page, canvas, 'Slice');
   await page.locator('[data-block-id="2"] input[type="number"]').fill('2');
   await loadCSV(page, 3, 'tests/test-data-1.csv');
-  await page.locator('[data-block-id="3"] button').click();
+  await page.locator('#run-all-btn').click();
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
   await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(2);
 });
@@ -532,9 +532,9 @@ test('slice keeps only the first N rows', async ({ page }) => {
 test('deduplicate passes through already-unique rows unchanged', async ({ page }) => {
   await page.goto('/');
   const canvas = await page.locator('#canvas').boundingBox();
-  await threeBlockStack(page, canvas, 'Deduplicate');
+  await threeBlockStack(page, canvas, 'Unique');
   await loadCSV(page, 3, 'tests/test-data-1.csv');
-  await page.locator('[data-block-id="3"] button').click();
+  await page.locator('#run-all-btn').click();
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
   await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(4);
 });
@@ -580,12 +580,8 @@ test('join block inner-joins two CSV sources and runs when second input arrives'
   await loadCSV(page, 3, 'tests/test-data-1.csv');
   await loadCSV(page, 4, 'tests/test-data-2.csv');
 
-  // Running CSV1 alone: join has only one input — modal must stay hidden.
-  await page.locator('[data-block-id="3"] button').click();
-  await expect(page.locator('#show-modal')).toHaveClass(/hidden/);
-
-  // Running CSV2 supplies the second input — join fires automatically.
-  await page.locator('[data-block-id="4"] button').click();
+  // Run all CSV blocks — join fires when both inputs arrive.
+  await page.locator('#run-all-btn').click();
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
 
   // Inner join: Charlie has no match in test-data-2.csv → 3 rows.
@@ -611,10 +607,12 @@ test('re-running CSV1 after both inputs loaded re-executes join', async ({ page 
   await clickBlock(page, 2);
   await loadCSV(page, 3, 'tests/test-data-1.csv');
   await loadCSV(page, 4, 'tests/test-data-2.csv');
-  // Run both to seed join.
-  await page.locator('[data-block-id="4"] button').click();
-  await page.locator('[data-block-id="3"] button').click();
-  // Modal should be visible after second run (join re-executed).
+  // First run seeds both join inputs — join fires, modal opens.
+  await page.locator('#run-all-btn').click();
+  await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
+  await page.locator('#show-close').click();
+  // Second run re-executes the join — modal opens again.
+  await page.locator('#run-all-btn').click();
   await expect(page.locator('#show-modal')).not.toHaveClass(/hidden/);
   await expect(page.locator('#show-body .df-table tbody tr')).toHaveCount(3);
 });

@@ -4,7 +4,7 @@ export const H = 60;        // standard block height in pixels
 export const W_WIDE = 240;  // canvas width for data-science blocks (csv, filter, show)
 export const H_WIDE = 80;   // canvas height for data-science blocks
 export const BUMP = 14;     // height of convex tab / depth of concave notch
-export const KNOB_R = 6;    // radius of connection knobs
+export const KNOB_R = 12;   // radius of connection knobs
 
 // Block type definitions
 export const BLOCK_TYPES = {
@@ -16,7 +16,7 @@ export const BLOCK_TYPES = {
   summarize:   { label: 'Summarize',   top: 'convex', bottom: 'concave', knobs: ['out0'],             wide: true },
   mutate:      { label: 'Mutate',      top: 'convex', bottom: 'concave', knobs: ['out0'],             wide: true },
   slice:       { label: 'Slice',       top: 'convex', bottom: 'concave', knobs: ['out0'],             wide: true },
-  deduplicate: { label: 'Deduplicate', top: 'convex', bottom: 'concave', knobs: ['out0'],             wide: true },
+  deduplicate: { label: 'Unique',       top: 'convex', bottom: 'concave', knobs: ['out0'],             wide: true },
   join:        { label: 'Join',        top: 'flat',   bottom: 'concave', knobs: ['in0','in1','out0'], wide: true },
   show:        { label: 'Show',        top: 'convex', bottom: 'concave', knobs: [],                  wide: true },
 };

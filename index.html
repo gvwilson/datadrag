@@ -4,19 +4,21 @@
   <meta charset="utf-8">
   <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
   <title>DataDrag</title>
-  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="palette">
     <h2>Blocks</h2>
   </div>
-  <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-        <polygon points="0 0, 8 3, 0 6" fill="#555"/>
-      </marker>
-    </defs>
-  </svg>
+  <div id="canvas-area">
+    <button id="run-all-btn">Run</button>
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#555"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
   <div id="ctx-menu" class="hidden"></div>
 
   <!-- Show-block popup modal -->
@@ -31,20 +33,6 @@
     </div>
   </div>
 
-  <!-- Import map: resolves bare specifiers used by arquero's ESM source. -->
-  <!-- node: stubs are placeholders; arquero's file-loading code paths   -->
-  <!-- are never reached because we feed CSV text directly from the       -->
-  <!-- browser File API.                                                  -->
-  <script type="importmap">
-  {
-    "imports": {
-      "acorn":             "/node_modules/acorn/dist/acorn.mjs",
-      "@uwdata/flechette": "/node_modules/@uwdata/flechette/dist/flechette.mjs",
-      "node:fs/promises":  "/src/stubs/node-fs-stub.js",
-      "node:stream":       "/src/stubs/node-stream-stub.js"
-    }
-  }
-  </script>
-  <script type="module" src="src/app.js"></script>
+  <script src="dist/datadrag.js"></script>
 </body>
 </html>
